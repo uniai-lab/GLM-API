@@ -7,9 +7,9 @@ from transformers import AutoTokenizer, AutoModel
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
 
-DEVICE = "cuda"
-DEVICE_ID = "0"
-CUDA_DEVICE = f"{DEVICE}:{DEVICE_ID}" if DEVICE_ID else DEVICE
+DEVICE = 'cuda'
+DEVICE_ID = '0'
+CUDA_DEVICE = f'{DEVICE}:{DEVICE_ID}' if DEVICE_ID else DEVICE
 MAX_LENGTH = 2048
 TOP_P = 0.7
 TEMPERATURE = 0.95
@@ -26,9 +26,9 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=['*'],
+    allow_methods=['*'],
+    allow_headers=['*'],
 )
 
 
@@ -36,11 +36,12 @@ def predict(tokenizer, prompt, history, max_length, top_p, temperature):
     for response, history in model.stream_chat(tokenizer, prompt, history, max_length=max_length, top_p=top_p,
                                                temperature=temperature):
         yield json.dumps({
-            "response": response,
-            "prompt_tokens": count(prompt),
-            "completion_tokens": count(response),
-            "total_tokens": count(prompt)+count(response)
+            'message': response,
+            'prompt_tokens': count(prompt),
+            'completion_tokens': count(response),
+            'total_tokens': count(prompt)+count(response)
         })
+    return torch_gc()
 
 
 def count(prompt):
@@ -48,7 +49,7 @@ def count(prompt):
     return len(tokens)
 
 
-@app.post("/chat")
+@app.post('/chat')
 async def chat(request: Request):
     global model, tokenizer
 
@@ -65,21 +66,21 @@ async def chat(request: Request):
         tokenizer, prompt, history=history, max_length=max_length, top_p=top_p, temperature=temperature)
     torch_gc()
     data = {
-        "message": response,
-        "prompt_tokens": count(prompt),
-        "completion_tokens": count(response),
-        "total_tokens": count(response)+count(prompt)
+        'message': response,
+        'prompt_tokens': count(prompt),
+        'completion_tokens': count(response),
+        'total_tokens': count(response)+count(prompt)
     }
     return data
 
 
-@app.get("/chat-stream")
+@app.get('/chat-stream')
 async def chat_stream(jsonData: str):
     global model, tokenizer
 
     data = json.loads(jsonData)
 
-    prompt = data.get('prompt', "")
+    prompt = data.get('prompt', '')
     history = data.get('history', [])
     max_length = data.get('max_length', MAX_LENGTH)
     top_p = data.get('top_p', TOP_P)
@@ -89,7 +90,7 @@ async def chat_stream(jsonData: str):
     return EventSourceResponse(res)
 
 
-# @app.post("/embedding")
+# @app.post('/embedding')
 # async def embedding(text: str = Form(...), max_length: int = Form(...)):
 #     global model, tokenizer, device
 #     # genrate token ids
@@ -101,10 +102,10 @@ async def chat_stream(jsonData: str):
 #     output = embeddings[1][1][0]
 #     print(output.shape)
 #     output = output.cpu().detach().numpy().tolist()
-#     return {"embedding": output}
+#     return {'embedding': output}
 
 
-@ app.post("/tokenize")
+@ app.post('/tokenize')
 async def tokenize(request: Request):
     global model, tokenizer
 
@@ -117,14 +118,14 @@ async def tokenize(request: Request):
     tokens = tokenizer.tokenize(prompt)
     tokenIds = tokenizer(prompt, truncation=True,
                          max_length=max_length)['input_ids']
-    return {"tokenIds": tokenIds, 'tokens': tokens}
+    return {'tokenIds': tokenIds, 'tokens': tokens}
 
 
 if __name__ == '__main__':
-    device = torch.device("cuda:0")
+    device = torch.device('cuda:0')
     tokenizer = AutoTokenizer.from_pretrained(
-        "THUDM/chatglm-6b", trust_remote_code=True)
+        'THUDM/chatglm-6b', trust_remote_code=True)
     model = AutoModel.from_pretrained(
-        "THUDM/chatglm-6b", trust_remote_code=True).half().cuda(device)
+        'THUDM/chatglm-6b', trust_remote_code=True).half().cuda(device)
     model.eval()
     uvicorn.run(app, host='0.0.0.0', port=8000)

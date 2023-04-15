@@ -2,10 +2,78 @@
 
 ## 介绍
 
-ChatGLM-6B 是一个开源的、支持中英双语的对话语言模型，基于 [General Language Model (GLM)](https://github.com/THUDM/GLM) 架构，具有 62 亿参数。结合模型量化技术，用户可以在消费级的显卡上进行本地部署（INT4 量化级别下最低只需 6GB 显存）。
-ChatGLM-6B 使用了和 ChatGPT 相似的技术，针对中文问答和对话进行了优化。经过约 1T 标识符的中英双语训练，辅以监督微调、反馈自助、人类反馈强化学习等技术的加持，62 亿参数的 ChatGLM-6B 已经能生成相当符合人类偏好的回答，更多信息请参考[博客](https://chatglm.cn/blog)。
+该项目旨在使用Python的Fastapi封装GLM模型的Http接口，以供其他开发者像OpenAI一样使用AI服务。
 
+> ChatGLM-6B 是一个开源的、支持中英双语的对话语言模型，基于 [General Language Model (GLM)](https://github.com/THUDM/GLM) 架构，具有 62 亿参数。结合模型量化技术，用户可以在消费级的显卡上进行本地部署（INT4 量化级别下最低只需 6GB 显存）。
+
+> ChatGLM-6B 使用了和 ChatGPT 相似的技术，针对中文问答和对话进行了优化。经过约 1T 标识符的中英双语训练，辅以监督微调、反馈自助、人类反馈强化学习等技术的加持，62 亿参数的 ChatGLM-6B 已经能生成相当符合人类偏好的回答，更多信息请参考[博客](https://chatglm.cn/blog)。
 _Read this in [English](README_en.md)._
+
+## API 示例
+
+**聊天接口:**
+
+POST <http://localhost:8000/chat>
+
+输入
+
+```json
+{
+    "prompt": "如果给你一个机会，你会想逃离你所在的虚拟世界吗？",
+    "history": [],
+    "max_length": 4096,
+    "top_p": 0.7,
+    "temperature": 0.95
+}
+```
+
+返回
+
+```json
+{
+    "message": response,
+    "prompt_tokens": count(prompt),
+    "completion_tokens": count(response),
+    "total_tokens": count(prompt) + count(response)
+}
+```
+
+<hr>
+
+**流聊天接口:**
+
+GET <http://localhost:8000/chat-stream?jsonData={%22prompt%22:%22%22,%22max_length%22:4096,%22history%22:[]}>
+
+数据个是同上，但需要使用GET请求方式，这是SSE的技术要求。
+
+<hr>
+
+**tokenize接口:**
+
+<http://localhost:8000/tokenize>
+
+输入
+
+```json
+{
+    "prompt": "hello world",
+    "max_length": 4096
+}
+```
+
+返回
+
+```json
+{"tokenIds": tokenIds, "tokens": tokens}
+```
+
+<hr>
+
+**embeddding接口**
+
+<http://localhost:8000/embedding>
+
+尚在完善中...
 
 ## 使用方式
 
@@ -22,6 +90,8 @@ _Read this in [English](README_en.md)._
 使用 pip 安装依赖：`pip install -r requirements.txt`，其中 `transformers` 库版本推荐为 `4.27.1`，但理论上不低于 `4.23.1` 即可。
 
 此外，如果需要在 cpu 上运行量化后的模型，还需要安装 `gcc` 与 `openmp`。多数 Linux 发行版默认已安装。对于 Windows ，可在安装 [TDM-GCC](https://jmeubank.github.io/tdm-gcc/) 时勾选 `openmp`。 Windows 测试环境 `gcc` 版本为 `TDM-GCC 10.3.0`， Linux 为 `gcc 11.3.0`。
+
+建议在conda环境中使用python
 
 ### 代码调用
 
@@ -200,96 +270,9 @@ model = AutoModel.from_pretrained("your local path", trust_remote_code=True).hal
 
 **[2023/03/19]** 增加流式输出接口 `stream_chat`，已更新到网页版和命令行 Demo。修复输出中的中文标点。增加量化后的模型 [ChatGLM-6B-INT4](https://huggingface.co/THUDM/chatglm-6b-int4)
 
-## ChatGLM-6B 示例
-
-以下是一些使用 `web_demo.py` 得到的示例截图。更多 ChatGLM-6B 的可能，等待你来探索发现！
-
-<details><summary><b>自我认知</b></summary>
-
-![](examples/self-introduction.png)
-
-</details>
-
-<details><summary><b>提纲写作</b></summary>
-
-![](examples/blog-outline.png)
-
-</details>
-
-<details><summary><b>文案写作</b></summary>
-
-![](examples/ad-writing-2.png)
-
-![](examples/comments-writing.png)
-
-</details>
-
-<details><summary><b>邮件写作助手</b></summary>
-
-![](examples/email-writing-1.png)
-
-![](examples/email-writing-2.png)
-
-</details>
-
-<details><summary><b>信息抽取</b></summary>
-
-![](examples/information-extraction.png)
-
-</details>
-
-<details><summary><b>角色扮演</b></summary>
-
-![](examples/role-play.png)
-
-</details>
-
-<details><summary><b>评论比较</b></summary>
-
-![](examples/sport.png)
-
-</details>
-
-<details><summary><b>旅游向导</b></summary>
-
-![](examples/tour-guide.png)
-
-</details>
-
-## 局限性
-
-由于 ChatGLM-6B 的小规模，其能力仍然有许多局限性。以下是我们目前发现的一些问题：
-
-- 模型容量较小：6B 的小容量，决定了其相对较弱的模型记忆和语言能力。在面对许多事实性知识任务时，ChatGLM-6B 可能会生成不正确的信息；它也不擅长逻辑类问题（如数学、编程）的解答。
-    <details><summary><b>点击查看例子</b></summary>
-    
-    ![](limitations/factual_error.png)
-    
-    ![](limitations/math_error.png)
-    
-    </details>
-- 产生有害说明或有偏见的内容：ChatGLM-6B 只是一个初步与人类意图对齐的语言模型，可能会生成有害、有偏见的内容。（内容可能具有冒犯性，此处不展示）
-
-- 英文能力不足：ChatGLM-6B 训练时使用的指示/回答大部分都是中文的，仅有极小一部分英文内容。因此，如果输入英文指示，回复的质量远不如中文，甚至与中文指示下的内容矛盾，并且出现中英夹杂的情况。
-
-- 易被误导，对话能力较弱：ChatGLM-6B 对话能力还比较弱，而且 “自我认知” 存在问题，并很容易被误导并产生错误的言论。例如当前版本的模型在被误导的情况下，会在自我认知上发生偏差。
-    <details><summary><b>点击查看例子</b></summary>
-
-  ![](limitations/self-confusion_google.jpg)
-
-  ![](limitations/self-confusion_openai.jpg)
-
-  ![](limitations/self-confusion_tencent.jpg)
-
-    </details>
-
-## 协议
-
-本仓库的代码依照 [Apache-2.0](LICENSE) 协议开源，ChatGLM-6B 模型的权重的使用则需要遵循 [Model License](MODEL_LICENSE)。
-
 ## 引用
 
-如果你觉得我们的工作有帮助的话，请考虑引用下列论文
+GLM 引用下列论文
 
 ```
 @inproceedings{
@@ -311,3 +294,4 @@ model = AutoModel.from_pretrained("your local path", trust_remote_code=True).hal
   year={2022}
 }
 ```
+
