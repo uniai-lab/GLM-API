@@ -10,7 +10,7 @@ from sse_starlette.sse import EventSourceResponse
 DEVICE = 'cuda'
 DEVICE_ID = '0'
 CUDA_DEVICE = f'{DEVICE}:{DEVICE_ID}' if DEVICE_ID else DEVICE
-MAX_LENGTH = 2048
+MAX_LENGTH = 4096
 TOP_P = 0.7
 TEMPERATURE = 0.95
 
@@ -39,7 +39,9 @@ def predict(tokenizer, prompt, history, max_length, top_p, temperature):
             'message': response,
             'prompt_tokens': count(prompt),
             'completion_tokens': count(response),
-            'total_tokens': count(prompt)+count(response)
+            'total_tokens': count(prompt)+count(response),
+            'model': "glm-60B",
+            'object': 'chat.completion'
         })
     return torch_gc()
 
@@ -69,16 +71,19 @@ async def chat(request: Request):
         'message': response,
         'prompt_tokens': count(prompt),
         'completion_tokens': count(response),
-        'total_tokens': count(response)+count(prompt)
+        'total_tokens': count(response)+count(prompt),
+        'model': "glm-60B",
+        'object': 'chat.completion'
     }
     return data
 
 
-@app.get('/chat-stream')
-async def chat_stream(jsonData: str):
+@app.post('/chat-stream')
+async def chat_stream(request: Request):
     global model, tokenizer
 
-    data = json.loads(jsonData)
+    json_post_raw = await request.json()
+    data = json.loads(json.dumps(json_post_raw))
 
     prompt = data.get('prompt', '')
     history = data.get('history', [])
@@ -122,10 +127,9 @@ async def tokenize(request: Request):
 
 
 if __name__ == '__main__':
-    device = torch.device('cuda:0')
     tokenizer = AutoTokenizer.from_pretrained(
         'THUDM/chatglm-6b', trust_remote_code=True)
     model = AutoModel.from_pretrained(
-        'THUDM/chatglm-6b', trust_remote_code=True).half().cuda(device)
+        'THUDM/chatglm-6b', trust_remote_code=True).half().cuda()
     model.eval()
     uvicorn.run(app, host='0.0.0.0', port=8000)

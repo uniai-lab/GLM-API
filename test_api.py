@@ -1,6 +1,7 @@
 import uvicorn
 import asyncio
-from fastapi import FastAPI
+import json
+from fastapi import FastAPI, Request
 from sse_starlette.sse import EventSourceResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -16,8 +17,8 @@ app.add_middleware(
 )
 
 
-@app.get("/events")
-async def get_events():
+@app.post("/events")
+async def get_events(request: Request):
     async def event_stream():
         count = 0
         while True:
@@ -28,6 +29,12 @@ async def get_events():
             count += 1
             await asyncio.sleep(1)
 
+    json_post = await request.json()
+    data = json.loads(json.dumps(json_post))
+    prompt = data.get('prompt', '')
+    history = data.get('history', [])
+    print(prompt)
+    print(history)
     return EventSourceResponse(event_stream())
 
 if __name__ == '__main__':
