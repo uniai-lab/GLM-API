@@ -36,7 +36,7 @@ def predict(tokenizer, prompt, history, max_length, top_p, temperature):
     for response, history in model.stream_chat(tokenizer, prompt, history, max_length=max_length, top_p=top_p,
                                                temperature=temperature):
         yield json.dumps({
-            'message': response,
+            'content': response,
             'prompt_tokens': count(prompt),
             'completion_tokens': count(response),
             'total_tokens': count(prompt)+count(response),
@@ -68,7 +68,7 @@ async def chat(request: Request):
         tokenizer, prompt, history=history, max_length=max_length, top_p=top_p, temperature=temperature)
     torch_gc()
     data = {
-        'message': response,
+        'content': response,
         'prompt_tokens': count(prompt),
         'completion_tokens': count(response),
         'total_tokens': count(response)+count(prompt),
