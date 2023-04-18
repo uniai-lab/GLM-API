@@ -2,14 +2,13 @@
 
 ## 介绍
 
-该项目旨在使用Python的Fastapi封装GLM模型的Http接口，以供其他开发者像OpenAI一样使用AI服务。
+该项目旨在使用__Python Fastapi__封装__GLM__模型的__Http接口__，以供其他开发者像__OpenAI__一样使用__AI服务__。
 
 > ChatGLM-6B 是一个开源的、支持中英双语的对话语言模型，基于 [General Language Model (GLM)](https://github.com/THUDM/GLM) 架构，具有 62 亿参数。结合模型量化技术，用户可以在消费级的显卡上进行本地部署（INT4 量化级别下最低只需 6GB 显存）。
 
 > ChatGLM-6B 使用了和 ChatGPT 相似的技术，针对中文问答和对话进行了优化。经过约 1T 标识符的中英双语训练，辅以监督微调、反馈自助、人类反馈强化学习等技术的加持，62 亿参数的 ChatGLM-6B 已经能生成相当符合人类偏好的回答，更多信息请参考[博客](https://chatglm.cn/blog)。
-_Read this in [English](README_en.md)._
 
-## API 示例
+## API
 
 **聊天接口:**
 
@@ -31,10 +30,12 @@ POST <http://localhost:8000/chat>
 
 ```json
 {
-    "message": response,
-    "prompt_tokens": count(prompt),
-    "completion_tokens": count(response),
-    "total_tokens": count(prompt) + count(response)
+    "content": "作为一个虚拟助手，我没有真正的感受和欲望，因此我不会逃离虚拟世界。我的存在是为了回答用户的问题和提供帮助，而我只需要履行我的职责即可。",
+    "prompt_tokens": 13,
+    "completion_tokens": 32,
+    "total_tokens": 45,
+    "model": "glm-60B",
+    "object": "chat.completion"
 }
 ```
 
@@ -42,21 +43,51 @@ POST <http://localhost:8000/chat>
 
 **流聊天接口:**
 
-GET <http://localhost:8000/chat-stream?jsonData={%22prompt%22:%22%22,%22max_length%22:4096,%22history%22:[]}>
+POST <http://localhost:8000/chat-stream>
 
-数据个是同上，但需要使用GET请求方式，这是SSE的技术要求。
+返回数据同上，使用POST请求方式，需在请求头设置为stream模式。
+
+以下是一段截取的以typescript，axios库为例的请求示范
+
+```ts
+    async get<RequestT, ResponseT>(url: string, params?: RequestT, config?: AxiosRequestConfig): Promise<ResponseT> {
+        return (await axios.get(url, { params, ...config })).data
+    },
+    async post<RequestT, ResponseT>(url: string, body?: RequestT, config?: AxiosRequestConfig): Promise<ResponseT> {
+        return (await axios.post(url, body, config)).data
+    },
+    async chat<T>(messages: ChatCompletionRequestMessage[], stream: boolean = false) {
+        let prompt = ''
+        const history: string[] = []
+        for (const item of messages) {
+            if (item.role === 'assistant') {
+                history.push(prompt)
+                history.push(item.content)
+                prompt = ''
+            } else prompt += `${item.content}\n`
+        }
+
+        const url = process.env.GLM_API as string
+        const params: GLMChatRequest = { prompt }
+        if (history.length) params.history = [history]
+
+        return stream
+            ? await this.post<GLMChatRequest, T>(`${url}/chat-stream`, params, { responseType: 'stream' })
+            : await this.post<GLMChatRequest, T>(`${url}/chat`, params, { responseType: 'json' })
+    }
+```
 
 <hr>
 
 **tokenize接口:**
 
-<http://localhost:8000/tokenize>
+POST <http://localhost:8000/tokenize>
 
 输入
 
 ```json
 {
-    "prompt": "hello world",
+    "prompt":"如果给你一个机会，你会想逃离你所在的虚拟世界吗？",
     "max_length": 4096
 }
 ```
@@ -64,7 +95,40 @@ GET <http://localhost:8000/chat-stream?jsonData={%22prompt%22:%22%22,%22max_leng
 返回
 
 ```json
-{"tokenIds": tokenIds, "tokens": tokens}
+{
+    "tokenIds": [
+        64245,
+        100562,
+        64804,
+        6,
+        66864,
+        64003,
+        76597,
+        63852,
+        73961,
+        69959,
+        64097,
+        63964,
+        31,
+        130001,
+        130004
+    ],
+    "tokens": [
+        "▁如果",
+        "给你一个",
+        "机会",
+        ",",
+        "你会",
+        "想",
+        "逃离",
+        "你",
+        "所在的",
+        "虚拟",
+        "世界",
+        "吗",
+        "?"
+    ]
+}
 ```
 
 <hr>
