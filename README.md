@@ -2,7 +2,7 @@
 
 ## 介绍
 
-该项目旨在使用__Python Fastapi__封装__GLM__模型的__Http接口__，以供其他开发者像__OpenAI__一样使用__AI服务__。
+该项目旨在使用**Python Fastapi**封装**GLM**模型的**Http接口**，以供其他开发者像**OpenAI**一样使用**AI服务**。
 
 > ChatGLM-6B 是一个开源的、支持中英双语的对话语言模型，基于 [General Language Model (GLM)](https://github.com/THUDM/GLM) 架构，具有 62 亿参数。结合模型量化技术，用户可以在消费级的显卡上进行本地部署（INT4 量化级别下最低只需 6GB 显存）。
 
