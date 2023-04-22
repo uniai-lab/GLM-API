@@ -105,7 +105,8 @@ async def embedding(request: Request):
     data = json.loads(json.dumps(json_post_raw))
     prompt = data.get('prompt', [])
     embeddings = encoder.encode(prompt)
-    return {'embedding': embeddings.tolist()}
+    data = embeddings.tolist()
+    return {'data': data, 'model': 'text2vec-large-chinese', 'object': 'embedding'}
 
 
 @ app.post('/tokenize')
