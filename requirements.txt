@@ -7,3 +7,4 @@ mdtex2html
 sentencepiece
 sse-starlette
 fastapi
+text2vec

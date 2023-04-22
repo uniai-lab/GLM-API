@@ -2,14 +2,13 @@ import uvicorn
 import json
 import torch
 
+from text2vec import SentenceModel
 from fastapi import FastAPI, Request
 from transformers import AutoTokenizer, AutoModel
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
 
-DEVICE = 'cuda'
-DEVICE_ID = '0'
-CUDA_DEVICE = f'{DEVICE}:{DEVICE_ID}' if DEVICE_ID else DEVICE
+
 MAX_LENGTH = 4096
 TOP_P = 0.7
 TEMPERATURE = 0.95
@@ -17,7 +16,10 @@ TEMPERATURE = 0.95
 
 def torch_gc():
     if torch.cuda.is_available():
-        with torch.cuda.device(CUDA_DEVICE):
+        with torch.cuda.device('cuda:0'):
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+        with torch.cuda.device('cuda:1'):
             torch.cuda.empty_cache()
             torch.cuda.ipc_collect()
 
@@ -95,19 +97,15 @@ async def chat_stream(request: Request):
     return EventSourceResponse(res)
 
 
-# @app.post('/embedding')
-# async def embedding(text: str = Form(...), max_length: int = Form(...)):
-#     global model, tokenizer, device
-#     # genrate token ids
-#     input = tokenizer(text, truncation=True,
-#                       max_length=max_length if max_length else 2048)['input_ids']
-#     # genrate tensor [[...]]
-#     tensor = torch.tensor(input)[None, :]
-#     embeddings = model(tensor.to(device))
-#     output = embeddings[1][1][0]
-#     print(output.shape)
-#     output = output.cpu().detach().numpy().tolist()
-#     return {'embedding': output}
+@app.post('/embedding')
+async def embedding(request: Request):
+    global encoder
+
+    json_post_raw = await request.json()
+    data = json.loads(json.dumps(json_post_raw))
+    prompt = data.get('prompt', [])
+    embeddings = encoder.encode(prompt)
+    return {'embedding': embeddings.tolist()}
 
 
 @ app.post('/tokenize')
@@ -127,9 +125,14 @@ async def tokenize(request: Request):
 
 
 if __name__ == '__main__':
+    # load GLM 6B
     tokenizer = AutoTokenizer.from_pretrained(
         'THUDM/chatglm-6b', trust_remote_code=True)
     model = AutoModel.from_pretrained(
-        'THUDM/chatglm-6b', trust_remote_code=True).half().cuda()
+        'THUDM/chatglm-6b', trust_remote_code=True).half().cuda('cuda:0')
     model.eval()
+
+    # load embedding model
+    encoder = SentenceModel('GanymedeNil/text2vec-large-chinese')
+    # start fastapi
     uvicorn.run(app, host='0.0.0.0', port=8000)
