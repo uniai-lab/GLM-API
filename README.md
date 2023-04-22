@@ -137,7 +137,23 @@ POST <http://localhost:8000/tokenize>
 
 <http://localhost:8000/embedding>
 
-尚在完善中...
+输入
+
+```json
+{
+    "prompt": ["hello world", "hello GPT"]
+}
+```
+
+返回
+
+```json
+{
+    "data": [][], // this is embedding
+    "model": "text2vec-large-chinese",
+    "object": "embedding"
+}
+```
 
 ## 使用方式
 
