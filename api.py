@@ -1,28 +1,18 @@
 import uvicorn
 import json
 import torch
+import sys
 
 from text2vec import SentenceModel
 from fastapi import FastAPI, Request
 from transformers import AutoTokenizer, AutoModel
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
-
+from utils import load_model_on_gpus
 
 MAX_LENGTH = 4096
 TOP_P = 0.7
 TEMPERATURE = 0.95
-
-
-def torch_gc():
-    if torch.cuda.is_available():
-        with torch.cuda.device('cuda:0'):
-            torch.cuda.empty_cache()
-            torch.cuda.ipc_collect()
-        with torch.cuda.device('cuda:1'):
-            torch.cuda.empty_cache()
-            torch.cuda.ipc_collect()
-
 
 app = FastAPI()
 app.add_middleware(
@@ -34,6 +24,17 @@ app.add_middleware(
 )
 
 
+def torch_gc():
+    if torch.cuda.is_available():
+        device_count = torch.cuda.device_count()
+        print("CUDA GPU amount:", device_count)
+        for i in range(device_count):
+            with torch.cuda.device('cuda:' + str(i)):
+                print("Empty GPU", i)
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
+
+
 def predict(tokenizer, prompt, history, max_length, top_p, temperature):
     for response, history in model.stream_chat(tokenizer, prompt, history, max_length=max_length, top_p=top_p,
                                                temperature=temperature):
@@ -42,7 +43,7 @@ def predict(tokenizer, prompt, history, max_length, top_p, temperature):
             'prompt_tokens': count(prompt),
             'completion_tokens': count(response),
             'total_tokens': count(prompt)+count(response),
-            'model': "glm-60B",
+            'model': "glm-6B",
             'object': 'chat.completion'
         })
     return torch_gc()
@@ -74,7 +75,7 @@ async def chat(request: Request):
         'prompt_tokens': count(prompt),
         'completion_tokens': count(response),
         'total_tokens': count(response)+count(prompt),
-        'model': "glm-60B",
+        'model': "glm-6B",
         'object': 'chat.completion'
     }
     return data
@@ -109,9 +110,9 @@ async def embedding(request: Request):
     return {'data': data, 'model': 'text2vec-large-chinese', 'object': 'embedding'}
 
 
-@ app.post('/tokenize')
+@app.post('/tokenize')
 async def tokenize(request: Request):
-    global model, tokenizer
+    global tokenizer
 
     json_post_raw = await request.json()
     data = json.loads(json.dumps(json_post_raw))
@@ -129,11 +130,11 @@ if __name__ == '__main__':
     # load GLM 6B
     tokenizer = AutoTokenizer.from_pretrained(
         'THUDM/chatglm-6b', trust_remote_code=True)
-    model = AutoModel.from_pretrained(
-        'THUDM/chatglm-6b', trust_remote_code=True).half().cuda('cuda:0')
-    model.eval()
+    # support multi GPUs
+    model = load_model_on_gpus('THUDM/chatglm-6b', int(sys.argv[1]))
 
     # load embedding model
     encoder = SentenceModel('GanymedeNil/text2vec-large-chinese')
+
     # start fastapi
     uvicorn.run(app, host='0.0.0.0', port=8000)

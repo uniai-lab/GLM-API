@@ -8,3 +8,4 @@ sentencepiece
 sse-starlette
 fastapi
 text2vec
+accelerate
