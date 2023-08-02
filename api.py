@@ -75,7 +75,7 @@ async def chat(request: Request):
         'prompt_tokens': count(prompt),
         'completion_tokens': count(response),
         'total_tokens': count(response)+count(prompt),
-        'model': "glm-6B",
+        'model': "glm2-6B",
         'object': 'chat.completion'
     }
     return data
@@ -129,9 +129,9 @@ async def tokenize(request: Request):
 if __name__ == '__main__':
     # load GLM 6B
     tokenizer = AutoTokenizer.from_pretrained(
-        'THUDM/chatglm-6b', trust_remote_code=True)
+        'THUDM/chatglm2-6b', trust_remote_code=True)
     # support multi GPUs
-    model = load_model_on_gpus('THUDM/chatglm-6b', int(sys.argv[1]))
+    model = load_model_on_gpus('THUDM/chatglm2-6b', int(sys.argv[1]))
 
     # load embedding model
     encoder = SentenceModel('GanymedeNil/text2vec-large-chinese')
