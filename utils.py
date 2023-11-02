@@ -49,11 +49,13 @@ def auto_configure_device_map(num_gpus: int) -> Dict[str, int]:
 def load_model_on_gpus(checkpoint_path: Union[str, os.PathLike], num_gpus: int = 2,
                        device_map: Optional[Dict[str, int]] = None, **kwargs) -> Module:
     if num_gpus < 2 and device_map is None:
-        model = AutoModel.from_pretrained(checkpoint_path, trust_remote_code=True, **kwargs).half().cuda()
+        model = AutoModel.from_pretrained(
+            checkpoint_path, trust_remote_code=True, **kwargs).half().cuda()
     else:
         from accelerate import dispatch_model
 
-        model = AutoModel.from_pretrained(checkpoint_path, trust_remote_code=True, **kwargs).half()
+        model = AutoModel.from_pretrained(
+            checkpoint_path, trust_remote_code=True, **kwargs).half()
 
         if device_map is None:
             device_map = auto_configure_device_map(num_gpus)
@@ -170,7 +172,7 @@ def generate_stream_chatglm3(model: PreTrainedModel, tokenizer: PreTrainedTokeni
         response = tokenizer.decode(output_ids)
         if response and response[-1] != "�":
             yield {
-                "text": response,
+                "text": trim(response),
                 "usage": {
                     "prompt_tokens": input_echo_len,
                     "completion_tokens": total_len - input_echo_len,
@@ -181,7 +183,7 @@ def generate_stream_chatglm3(model: PreTrainedModel, tokenizer: PreTrainedTokeni
 
     # Only last stream result contains finish_reason, we set finish_reason as stop
     ret = {
-        "text": response,
+        "text": trim(response),
         "usage": {
             "prompt_tokens": input_echo_len,
             "completion_tokens": total_len - input_echo_len,
@@ -199,3 +201,10 @@ def generate_chatglm3(model: PreTrainedModel, tokenizer: PreTrainedTokenizer, pa
     for response in generate_stream_chatglm3(model, tokenizer, params):
         pass
     return response
+
+
+def trim(input):
+    if isinstance(input, str):
+        return input.strip()
+    else:
+        return input
