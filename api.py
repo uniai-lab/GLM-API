@@ -1,139 +1,272 @@
-import uvicorn
 import json
-import sys
+import time
+from contextlib import asynccontextmanager
+from typing import List, Literal, Optional, Union
 
+import torch
+import uvicorn
 from text2vec import SentenceModel
-from fastapi import FastAPI, Request
-from transformers import AutoTokenizer, AutoModel
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
-from utils import load_model_on_gpus
-from utils import torch_gc
+from transformers import AutoTokenizer
 
-MAX_LENGTH = 4096
-TOP_P = 0.7
-TEMPERATURE = 0.95
+from utils import process_response, generate_chatglm3, generate_stream_chatglm3
 
-app = FastAPI()
+MODEL = 'chatglm3-6b-32k'
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):  # collects GPU memory
+    yield
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
+
+
+app = FastAPI(lifespan=lifespan)
+
 app.add_middleware(
     CORSMiddleware,
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_origins=['*'],
-    allow_methods=['*'],
-    allow_headers=['*'],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
-def predict(tokenizer, prompt, history, max_length, top_p, temperature):
-    sends = 0
-    for response, _ in model.stream_chat(tokenizer, prompt, history, max_length=max_length, top_p=top_p,
-                                         temperature=temperature):
-        content = response[sends:]
-
-        if "" == content:
-            continue
-
-        yield json.dumps({
-            'content': response[sends:],
-            'prompt_tokens': count(prompt),
-            'completion_tokens': count(response),
-            'total_tokens': count(prompt)+count(response),
-            'model': "chatglm2-6b-32k",
-            'object': 'chat.completion'
-        }, ensure_ascii=False)
-
-        sends = len(response)
-    return torch_gc()
+class ModelCard(BaseModel):
+    id: str
+    object: str = "model"
+    created: int = Field(default_factory=lambda: int(time.time()))
+    owned_by: str = "owner"
+    root: Optional[str] = None
+    parent: Optional[str] = None
+    permission: Optional[list] = None
 
 
-def count(prompt):
-    tokens = tokenizer.tokenize(prompt)
-    return len(tokens)
+class ModelList(BaseModel):
+    object: str = "list"
+    data: List[ModelCard] = []
 
 
-@app.post('/chat')
-async def chat(request: Request):
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant", "system", "observation"]
+    content: str = None
+    metadata: Optional[str] = None
+    tools: Optional[List[dict]] = None
+
+
+class DeltaMessage(BaseModel):
+    role: Optional[Literal["user", "assistant", "system"]] = None
+    content: Optional[str] = None
+
+
+class ChatCompletionRequest(BaseModel):
+    messages: List[ChatMessage]
+    temperature: Optional[float] = 0.7
+    top_p: Optional[float] = 1.0
+    max_tokens: Optional[int] = 4096
+    stop: Optional[Union[str, List[str]]] = None
+    stream: Optional[bool] = False
+    chunk: Optional[bool] = True
+
+    # Additional parameters support for stop generation
+    stop_token_ids: Optional[List[int]] = None
+    repetition_penalty: Optional[float] = 1.1
+
+    # Additional parameters supported by tools
+    return_function_call: Optional[bool] = False
+
+
+class ChatCompletionResponseChoice(BaseModel):
+    index: int
+    message: ChatMessage
+    finish_reason: Literal["stop", "length", "function_call"]
+    history: Optional[List[dict]] = None
+
+
+class ChatCompletionResponseStreamChoice(BaseModel):
+    index: int
+    delta: DeltaMessage
+    finish_reason: Optional[Literal["stop", "length"]]
+
+
+class UsageInfo(BaseModel):
+    prompt_tokens: int = 0
+    total_tokens: int = 0
+    completion_tokens: Optional[int] = 0
+
+
+class ChatCompletionResponse(BaseModel):
+    model: str
+    object: Literal["chat.completion", "chat.completion.chunk"]
+    choices: List[Union[ChatCompletionResponseChoice,
+                        ChatCompletionResponseStreamChoice]]
+    created: Optional[int] = Field(default_factory=lambda: int(time.time()))
+    usage: Optional[UsageInfo] = None
+
+
+class EmbeddingRequest(BaseModel):
+    prompt: List[str]
+
+
+class EmbeddingResponse(BaseModel):
+    data: List[List[float]]
+    model: str
+    object: str
+
+
+class TokenizeRequest(BaseModel):
+    prompt: str
+    max_tokens: int = 4096
+
+
+class TokenizeResponse(BaseModel):
+    tokenIds: List[int]
+    tokens: List[str]
+
+
+@app.get("/models", response_model=ModelList)
+async def list_models():
+    return ModelList(data=[ModelCard(id="chatglm3-6b-32k"), ModelCard(id="text2vec-large-chinese")])
+
+
+@app.post("/chat", response_model=ChatCompletionResponse)
+async def create_chat_completion(request: ChatCompletionRequest):
     global model, tokenizer
 
-    json_post_raw = await request.json()
-    data = json.loads(json.dumps(json_post_raw))
+    if request.messages[-1].role == "assistant":
+        raise HTTPException(status_code=400, detail="Invalid request")
 
-    prompt = data.get('prompt', '')
-    history = data.get('history', [])
-    max_length = data.get('max_length', MAX_LENGTH)
-    top_p = data.get('top_p', TOP_P)
-    temperature = data.get('temperature', TEMPERATURE)
+    with_function_call = bool(
+        request.messages[0].role == "system" and request.messages[0].tools is not None)
 
-    response, history = model.chat(
-        tokenizer, prompt, history=history, max_length=max_length, top_p=top_p, temperature=temperature)
-    torch_gc()
-    data = {
-        'content': response,
-        'prompt_tokens': count(prompt),
-        'completion_tokens': count(response),
-        'total_tokens': count(response)+count(prompt),
-        'model': "chatglm2-6b-32k",
-        'object': 'chat.completion'
-    }
-    return data
+    # stop settings
+    request.stop = request.stop or []
+    if isinstance(request.stop, str):
+        request.stop = [request.stop]
+
+    request.stop_token_ids = request.stop_token_ids or []
+
+    gen_params = dict(
+        messages=request.messages,
+        temperature=request.temperature,
+        top_p=request.top_p,
+        max_tokens=request.max_tokens or 1024,
+        echo=False,
+        stream=request.stream,
+        chunk=request.chunk,
+        stop_token_ids=request.stop_token_ids,
+        stop=request.stop,
+        repetition_penalty=request.repetition_penalty,
+        with_function_call=with_function_call,
+    )
+
+    if request.stream:
+        generate = predict(MODEL, gen_params)
+        return EventSourceResponse(generate, media_type="text/event-stream")
+
+    response = generate_chatglm3(model, tokenizer, gen_params)
+    usage = UsageInfo()
+
+    finish_reason, history = "stop", None
+    if with_function_call and request.return_function_call:
+        history = [m.dict(exclude_none=True) for m in request.messages]
+        content, history = process_response(response["text"], history)
+        if isinstance(content, dict):
+            message, finish_reason = ChatMessage(
+                role="assistant",
+                content=json.dumps(content, ensure_ascii=False),
+            ), "function_call"
+        else:
+            message = ChatMessage(role="assistant", content=content)
+    else:
+        message = ChatMessage(role="assistant", content=response["text"])
+
+    choice_data = ChatCompletionResponseChoice(
+        index=0,
+        message=message,
+        finish_reason=finish_reason,
+        history=history
+    )
+
+    task_usage = UsageInfo.parse_obj(response["usage"])
+    for usage_key, usage_value in task_usage.dict().items():
+        setattr(usage, usage_key, getattr(usage, usage_key) + usage_value)
+
+    return ChatCompletionResponse(model=MODEL, choices=[choice_data], object="chat.completion", usage=usage)
 
 
-@app.post('/chat-stream')
-async def chat_stream(request: Request):
-    global model, tokenizer
-
-    json_post_raw = await request.json()
-    data = json.loads(json.dumps(json_post_raw))
-
-    prompt = data.get('prompt', '')
-    history = data.get('history', [])
-    max_length = data.get('max_length', MAX_LENGTH)
-    top_p = data.get('top_p', TOP_P)
-    temperature = data.get('temperature', TEMPERATURE)
-
-    res = predict(tokenizer, prompt, history, max_length, top_p, temperature)
-
-    return EventSourceResponse(res)
-
-
-@app.post('/embedding')
-async def embedding(request: Request):
+@app.post('/embedding', response_model=EmbeddingResponse)
+async def embedding(request: EmbeddingRequest):
     global encoder
 
-    json_post_raw = await request.json()
-    data = json.loads(json.dumps(json_post_raw))
-    prompt = data.get('prompt', [])
-    embeddings = encoder.encode(prompt)
+    embeddings = encoder.encode(request.prompt)
     data = embeddings.tolist()
-    return {'data': data, 'model': 'text2vec-large-chinese', 'object': 'embedding'}
+    return EmbeddingResponse(data=data, model='text2vec-large-chinese', object='embedding')
 
 
-@app.post('/tokenize')
-async def tokenize(request: Request):
+@app.post('/tokenize', response_model=TokenizeResponse)
+async def tokenize(request: TokenizeRequest):
     global tokenizer
 
-    json_post_raw = await request.json()
-    data = json.loads(json.dumps(json_post_raw))
-
-    prompt = data.get('prompt', '')
-    max_length = data.get('max_length', MAX_LENGTH)
-
-    tokens = tokenizer.tokenize(prompt)
-    tokenIds = tokenizer(prompt, truncation=True,
-                         max_length=max_length)['input_ids']
-    return {'tokenIds': tokenIds, 'tokens': tokens}
+    tokens = tokenizer.tokenize(request.prompt)
+    tokenIds = tokenizer(request.prompt, truncation=True,
+                         max_length=request.max_tokens)['input_ids']
+    return TokenizeResponse(tokenIds=tokenIds, tokens=tokens)
 
 
-if __name__ == '__main__':
-    # load GLM 6B
+async def predict(model_id: str, params: dict):
+    global model, tokenizer
+
+    choice_data = ChatCompletionResponseStreamChoice(
+        index=0,
+        delta=DeltaMessage(role="assistant"),
+        finish_reason=None
+    )
+    chunk = ChatCompletionResponse(model=model_id, choices=[
+                                   choice_data], object="chat.completion.chunk")
+    yield "{}".format(chunk.json(exclude_unset=True, ensure_ascii=False))
+
+    previous_text = ""
+    for new_response in generate_stream_chatglm3(model, tokenizer, params):
+        decoded_unicode = new_response["text"]
+        if params["chunk"]:
+            delta_text = decoded_unicode[len(previous_text):]
+            previous_text = decoded_unicode
+        else:
+            delta_text = decoded_unicode
+
+        if (len(delta_text)):
+            choice_data = ChatCompletionResponseStreamChoice(
+                index=0,
+                delta=DeltaMessage(content=delta_text),
+                finish_reason=None
+            )
+            chunk = ChatCompletionResponse(model=model_id, choices=[
+                choice_data], object="chat.completion.chunk")
+            yield "{}".format(chunk.json(exclude_unset=True, ensure_ascii=False))
+
+    choice_data = ChatCompletionResponseStreamChoice(
+        index=0,
+        delta=DeltaMessage(),
+        finish_reason="stop"
+    )
+    chunk = ChatCompletionResponse(model=model_id, choices=[
+                                   choice_data], object="chat.completion.chunk")
+    yield "{}".format(chunk.json(exclude_unset=True, ensure_ascii=False))
+    yield '[DONE]'
+
+
+if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained(
-        'THUDM/chatglm2-6b-32k', trust_remote_code=True)
-    # support multi GPUs
-    model = load_model_on_gpus(
-        'THUDM/chatglm2-6b-32k',  num_gpus=int(sys.argv[1]))
-
-    # load embedding model
+        "THUDM/chatglm3-6b-32k", trust_remote_code=True)
+    # 多显卡支持，使用下面两行代替上面一行，将num_gpus改为你实际的显卡数量
+    from utils import load_model_on_gpus
+    model = load_model_on_gpus("THUDM/chatglm3-6b-32k", num_gpus=2)
+    model = model.eval()
     encoder = SentenceModel('GanymedeNil/text2vec-large-chinese')
 
-    # start fastapi
-    uvicorn.run(app, host='0.0.0.0', port=8000)
+    uvicorn.run(app, host='0.0.0.0', port=8100)
