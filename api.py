@@ -130,12 +130,19 @@ class TokenizeResponse(BaseModel):
 
 @app.get("/models", response_model=ModelList)
 async def list_models():
-    return ModelList(data=[ModelCard(id="chatglm3-6b-32k"), ModelCard(id="text2vec-large-chinese")])
+    global model, tokenizer
+    models = [ModelCard(id="text2vec-large-chinese")]
+    if model is not None and tokenizer is not None:
+        models.append(ModelCard(id="chatglm3-6b-32k"))
+    return ModelList(data=models)
 
 
 @app.post("/chat", response_model=ChatCompletionResponse)
 async def create_chat_completion(request: ChatCompletionRequest):
     global model, tokenizer
+
+    if model is None or tokenizer is None:
+        raise HTTPException(status_code=404, detail="API chat not available")
 
     if request.messages[-1].role == "assistant":
         raise HTTPException(status_code=400, detail="Invalid request")
@@ -212,6 +219,10 @@ async def embedding(request: EmbeddingRequest):
 async def tokenize(request: TokenizeRequest):
     global tokenizer
 
+    if tokenizer is None:
+        raise HTTPException(
+            status_code=404, detail="API tokenize not available")
+
     tokens = tokenizer.tokenize(request.prompt)
     tokenIds = tokenizer(request.prompt, truncation=True,
                          max_length=request.max_tokens)['input_ids']
@@ -220,6 +231,10 @@ async def tokenize(request: TokenizeRequest):
 
 async def predict(model_id: str, params: dict):
     global model, tokenizer
+
+    if model is None or tokenizer is None:
+        raise HTTPException(
+            status_code=404, detail="model and tokenizer not available")
 
     choice_data = ChatCompletionResponseStreamChoice(
         index=0,
@@ -261,12 +276,17 @@ async def predict(model_id: str, params: dict):
 
 
 if __name__ == "__main__":
-    tokenizer = AutoTokenizer.from_pretrained(
-        "THUDM/chatglm3-6b-32k", trust_remote_code=True)
-    # 多显卡支持，使用下面两行代替上面一行，将num_gpus改为你实际的显卡数量
-    from utils import load_model_on_gpus
-    model = load_model_on_gpus("THUDM/chatglm3-6b-32k", num_gpus=2)
-    model = model.eval()
+    if torch.cuda.is_available():
+        tokenizer = AutoTokenizer.from_pretrained(
+            "THUDM/chatglm3-6b-32k", trust_remote_code=True)
+        from utils import load_model_on_gpus
+        # 多显卡支持，使用下面两行代替上面一行，将num_gpus改为你实际的显卡数量
+        model = load_model_on_gpus("THUDM/chatglm3-6b-32k", num_gpus=4)
+        model = model.eval()
+    else:
+        model = None
+        tokenizer = None
+
     encoder = SentenceModel('GanymedeNil/text2vec-large-chinese')
 
     uvicorn.run(app, host='0.0.0.0', port=8100)
