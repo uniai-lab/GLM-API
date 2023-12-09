@@ -109,6 +109,7 @@ class ChatCompletionResponse(BaseModel):
 
 
 class EmbeddingRequest(BaseModel):
+    model: str = 'text2vec-large-chinese'
     prompt: List[str]
 
 
@@ -142,7 +143,7 @@ async def create_chat_completion(request: ChatCompletionRequest):
     global model, tokenizer
 
     if model is None or tokenizer is None:
-        raise HTTPException(status_code=404, detail="API chat not available")
+        raise HTTPException(status_code=404, detail="chat API not available")
 
     if request.messages[-1].role == "assistant":
         raise HTTPException(status_code=400, detail="Invalid request")
@@ -210,9 +211,9 @@ async def create_chat_completion(request: ChatCompletionRequest):
 async def embedding(request: EmbeddingRequest):
     global encoder
 
-    embeddings = encoder.encode(request.prompt)
+    embeddings = encoder[request.model].encode(request.prompt)
     data = embeddings.tolist()
-    return EmbeddingResponse(data=data, model='text2vec-large-chinese', object='embedding')
+    return EmbeddingResponse(data=data, model=request.model, object='embedding')
 
 
 @app.post('/tokenize', response_model=TokenizeResponse)
@@ -280,13 +281,14 @@ if __name__ == "__main__":
         tokenizer = AutoTokenizer.from_pretrained(
             "THUDM/chatglm3-6b-32k", trust_remote_code=True)
         from utils import load_model_on_gpus
-        # 多显卡支持，使用下面两行代替上面一行，将num_gpus改为你实际的显卡数量
         model = load_model_on_gpus("THUDM/chatglm3-6b-32k", num_gpus=4)
-        model = model.eval()
     else:
         model = None
         tokenizer = None
 
-    encoder = SentenceModel('GanymedeNil/text2vec-large-chinese')
+    encoder = {
+        'text2vec-large-chinese': SentenceModel('GanymedeNil/text2vec-large-chinese'),
+        'text2vec-base-chinese-paraphrase': SentenceModel('shibing624/text2vec-base-chinese-paraphrase')
+    }
 
     uvicorn.run(app, host='0.0.0.0', port=8100)
