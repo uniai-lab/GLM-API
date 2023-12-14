@@ -1,4 +1,5 @@
 import json
+import argparse
 import time
 from contextlib import asynccontextmanager
 from typing import List, Literal, Optional, Union
@@ -277,18 +278,22 @@ async def predict(model_id: str, params: dict):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Run GLM API')
+    parser.add_argument('num_gpus', type=int, help='Number of GPUs to use')
+    args = parser.parse_args()
+
     if torch.cuda.is_available():
         tokenizer = AutoTokenizer.from_pretrained(
             "THUDM/chatglm3-6b-32k", trust_remote_code=True)
         from utils import load_model_on_gpus
-        model = load_model_on_gpus("THUDM/chatglm3-6b-32k", num_gpus=4)
+        model = load_model_on_gpus("THUDM/chatglm3-6b-32k", num_gpus=args.num_gpus)
     else:
         model = None
         tokenizer = None
 
     encoder = {
-        'text2vec-large-chinese': SentenceModel('GanymedeNil/text2vec-large-chinese'),
-        'text2vec-base-chinese-paraphrase': SentenceModel('shibing624/text2vec-base-chinese-paraphrase')
+        'text2vec-large-chinese': SentenceModel('GanymedeNil/text2vec-large-chinese', device='cpu'),
+        'text2vec-base-chinese-paraphrase': SentenceModel('shibing624/text2vec-base-chinese-paraphrase', device='cpu')
     }
 
     uvicorn.run(app, host='0.0.0.0', port=8100)
