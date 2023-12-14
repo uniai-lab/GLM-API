@@ -1,9 +1,11 @@
+# system lib
+import os
 import json
-import argparse
 import time
 from contextlib import asynccontextmanager
 from typing import List, Literal, Optional, Union
 
+# 3rd lib
 import torch
 import uvicorn
 from text2vec import SentenceModel
@@ -13,7 +15,8 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 from transformers import AutoTokenizer
 
-from utils import process_response, generate_chatglm3, generate_stream_chatglm3
+# my util
+from utils import process_response, generate_chatglm3, generate_stream_chatglm3, load_model_on_gpus
 
 MODEL = 'chatglm3-6b-32k'
 
@@ -24,7 +27,6 @@ async def lifespan(app: FastAPI):  # collects GPU memory
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.ipc_collect()
-
 
 app = FastAPI(lifespan=lifespan)
 
@@ -128,14 +130,22 @@ class TokenizeRequest(BaseModel):
 class TokenizeResponse(BaseModel):
     tokenIds: List[int]
     tokens: List[str]
+    model: str
+    object: str
 
 
 @app.get("/models", response_model=ModelList)
 async def list_models():
     global model, tokenizer
-    models = [ModelCard(id="text2vec-large-chinese")]
+    models = [
+        ModelCard(id="text2vec-large-chinese", object="embedding"),
+        ModelCard(id="text2vec-base-chinese-paraphrase", object="embedding")
+    ]
+
     if model is not None and tokenizer is not None:
-        models.append(ModelCard(id="chatglm3-6b-32k"))
+        models.append(ModelCard(id="chatglm3-6b-32k",
+                      object="chat.completion"))
+
     return ModelList(data=models)
 
 
@@ -228,7 +238,7 @@ async def tokenize(request: TokenizeRequest):
     tokens = tokenizer.tokenize(request.prompt)
     tokenIds = tokenizer(request.prompt, truncation=True,
                          max_length=request.max_tokens)['input_ids']
-    return TokenizeResponse(tokenIds=tokenIds, tokens=tokens)
+    return TokenizeResponse(tokenIds=tokenIds, tokens=tokens, model=MODEL, object="tokenizer")
 
 
 async def predict(model_id: str, params: dict):
@@ -277,19 +287,48 @@ async def predict(model_id: str, params: dict):
     yield '[DONE]'
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Run GLM API')
-    parser.add_argument('num_gpus', type=int, help='Number of GPUs to use')
-    args = parser.parse_args()
+def list_cuda():
+    # count all cuda
+    cuda_devices = [torch.device(f'cuda:{i}')
+                    for i in range(torch.cuda.device_count())]
 
-    if torch.cuda.is_available():
-        tokenizer = AutoTokenizer.from_pretrained(
-            "THUDM/chatglm3-6b-32k", trust_remote_code=True)
-        from utils import load_model_on_gpus
-        model = load_model_on_gpus("THUDM/chatglm3-6b-32k", num_gpus=args.num_gpus)
+    # print each cuda info
+    for device in cuda_devices:
+        device_name = torch.cuda.get_device_name(device)
+        device_index = device.index
+        is_available = torch.cuda.is_available()
+        print(
+            f"Device name: {device_name}, Device index: {device_index}, Is available: {is_available}")
+
+
+def list_cuda():
+    # Check if CUDA is available before proceeding
+    if not torch.cuda.is_available():
+        print("CUDA is not available.")
+        return
+
+    for i in range(torch.cuda.device_count()):
+        device_name = torch.cuda.get_device_name(i)
+        print(
+            f"Device name: {device_name}, Device index: {i}, Is available: True")
+
+
+if __name__ == "__main__":
+
+    available_gpus = torch.cuda.device_count()
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        "THUDM/chatglm3-6b-32k", trust_remote_code=True)
+
+    if available_gpus > 0:
+        print('GPU mode')
+        print("CUDA_VISIBLE_DEVICES", os.environ["CUDA_VISIBLE_DEVICES"])
+        list_cuda()
+        model = load_model_on_gpus(
+            "THUDM/chatglm3-6b-32k", available_gpus)
     else:
+        print('CPU mode, chat API not available')
         model = None
-        tokenizer = None
 
     encoder = {
         'text2vec-large-chinese': SentenceModel('GanymedeNil/text2vec-large-chinese', device='cpu'),
