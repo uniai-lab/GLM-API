@@ -13,7 +13,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoModel
 
 # my util
 from utils import process_response, generate_chatglm3, generate_stream_chatglm3, load_model_on_gpus
@@ -197,7 +197,7 @@ async def create_chat_completion(request: ChatCompletionRequest):
         if isinstance(content, dict):
             message, finish_reason = ChatMessage(
                 role="assistant",
-                content=json.dumps(content, ensure_ascii=False),
+                content=json.dumps(content),
             ), "function_call"
         else:
             message = ChatMessage(role="assistant", content=content)
@@ -255,7 +255,7 @@ async def predict(model_id: str, params: dict):
     )
     chunk = ChatCompletionResponse(model=model_id, choices=[
                                    choice_data], object="chat.completion.chunk")
-    yield "{}".format(chunk.json(exclude_unset=True, ensure_ascii=False))
+    yield "{}".format(chunk.model_dump_json(exclude_unset=True))
 
     previous_text = ""
     for new_response in generate_stream_chatglm3(model, tokenizer, params):
@@ -274,7 +274,7 @@ async def predict(model_id: str, params: dict):
             )
             chunk = ChatCompletionResponse(model=model_id, choices=[
                 choice_data], object="chat.completion.chunk")
-            yield "{}".format(chunk.json(exclude_unset=True, ensure_ascii=False))
+            yield "{}".format(chunk.model_dump_json(exclude_unset=True))
 
     choice_data = ChatCompletionResponseStreamChoice(
         index=0,
@@ -283,7 +283,7 @@ async def predict(model_id: str, params: dict):
     )
     chunk = ChatCompletionResponse(model=model_id, choices=[
                                    choice_data], object="chat.completion.chunk")
-    yield "{}".format(chunk.json(exclude_unset=True, ensure_ascii=False))
+    yield "{}".format(chunk.model_dump_json(exclude_unset=True, ensure_ascii=False))
     yield '[DONE]'
 
 
@@ -302,37 +302,48 @@ def list_cuda():
 
 
 def list_cuda():
+    print("CUDA_VISIBLE_DEVICES", os.environ["CUDA_VISIBLE_DEVICES"])
     # Check if CUDA is available before proceeding
-    if not torch.cuda.is_available():
-        print("CUDA is not available.")
-        return
-
     for i in range(torch.cuda.device_count()):
         device_name = torch.cuda.get_device_name(i)
         print(
             f"Device name: {device_name}, Device index: {i}, Is available: True")
 
 
-if __name__ == "__main__":
+def get_model_path(remote_path):
+    """检查模型是否在本地存在，如果存在则返回本地路径，否则返回远程路径"""
+    local_path = f"./model/{remote_path.split('/')[-1]}"
+    return local_path if os.path.exists(local_path) else remote_path
 
+
+if __name__ == "__main__":
+    available_cuda = torch.cuda.is_available()
     available_gpus = torch.cuda.device_count()
 
+    # 模型路径
+    chatglm_path = get_model_path('THUDM/chatglm3-6b-32k')
+    text2vec_large_path = get_model_path('GanymedeNil/text2vec-large-chinese')
+    text2vec_paraph_path = get_model_path(
+        'shibing624/text2vec-base-chinese-paraphrase')
+
+    # 加载tokenizer
     tokenizer = AutoTokenizer.from_pretrained(
-        "THUDM/chatglm3-6b-32k", trust_remote_code=True)
+        chatglm_path, trust_remote_code=True)
 
-    if available_gpus > 0:
+    # 根据可用性选择加载模型到GPU或CPU
+    if available_cuda and available_gpus > 0:
         print('GPU mode')
-        print("CUDA_VISIBLE_DEVICES", os.environ["CUDA_VISIBLE_DEVICES"])
-        list_cuda()
-        model = load_model_on_gpus(
-            "THUDM/chatglm3-6b-32k", available_gpus)
+        list_cuda()  # 列出CUDA设备
+        model = load_model_on_gpus(chatglm_path, available_gpus)
     else:
-        print('CPU mode, chat API not available')
-        model = None
+        print('CPU mode')
+        model = AutoModel.from_pretrained(
+            chatglm_path, trust_remote_code=True).float().to('cpu').eval()
 
+    # 加载其他模型
     encoder = {
-        'text2vec-large-chinese': SentenceModel('GanymedeNil/text2vec-large-chinese', device='cpu'),
-        'text2vec-base-chinese-paraphrase': SentenceModel('shibing624/text2vec-base-chinese-paraphrase', device='cpu')
+        'text2vec-large-chinese': SentenceModel(text2vec_large_path, device='cpu'),
+        'text2vec-base-chinese-paraphrase': SentenceModel(text2vec_paraph_path, device='cpu')
     }
 
     uvicorn.run(app, host='0.0.0.0', port=8100)
