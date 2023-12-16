@@ -2,97 +2,54 @@
 
 ## 介绍
 
-该项目旨在使用**Python Fastapi**封装**GLM**模型的**Http接口**，以供其他开发者像**OpenAI**一样使用**AI服务**。
+已升级 [ChatGLM3-6B-32k](https://huggingface.co/THUDM/chatglm3-6b-32k)
 
-> ChatGLM-6B 是一个开源的、支持中英双语的对话语言模型，基于 [General Language Model (GLM)](https://github.com/THUDM/GLM) 架构，具有 62 亿参数。结合模型量化技术，用户可以在消费级的显卡上进行本地部署（INT4 量化级别下最低只需 6GB 显存）。
+该项目旨在使用**Python Fastapi**封装**GLM**模型的**Http 接口**，以供其他开发者像**OpenAI**一样使用**AI 服务**。
 
-原版的ChatGLM-6B的API有点少，我增加了：
+> ChatGLM-6B 是一个开源的、支持中英双语的对话语言模型，基于 [General Language Model (GLM)](https://github.com/THUDM/GLM) 架构，具有 62 亿参数。结合模型量化技术，用户可以在消费级的显卡上进行本地部署。
 
-- 接口`chat-stream`，支持类似OpenAI GPT的流模式聊天接口
-- 模型`text2vec-large-chinese`，以提供embedding的能力，快速构建自己的知识索引库
-- 2023年8月，将chatglm-6B升级为chatglm2-6B
-- `chat-stream`流接口改成一个token一个token蹦，请注意修改下游接口，使用`+=`手动拼接
+原版的 ChatGLM-6B 的 API 有点少，我改了以下接口供开发者对接 GLM 使用：
+
+- 聊天接口：`/chat`，支持类似 OpenAI GPT 的流模式聊天接口（GPU 模式下可用，纯 CPU 不启动此接口，其他接口可用）
+- 表征接口：`/embedding`，引入模型 `text2vec-large-chinese`，`text2vec-base-chinese-paraphrase`，以提供 embedding 的能力 ，构建自己的向量知识库
+- 模型列出：`/models`，列出所有可用模型
+- 序列文本：`/tokenize`，将文本转为 token
+
+**要使用聊天接口 `/chat` 则必须使用 GPU 机器！必须使用 GPU 机器！必须使用 GPU 机器！**
 
 ## API
 
-接口地址：[https://documenter.getpostman.com/view/9347507/2s9XxzuYde](https://documenter.getpostman.com/view/9347507/2s9XxzuYde)
+### 聊天
 
-### 一次性聊天
-
-POST <http://localhost:8000/chat>
+POST <http://localhost:8100/chat>
 
 输入
 
 ```json
 {
-    "prompt": "蓝牙耳机坏了我应该去医院看什么科？",
-    "history": [],
-    "max_length": 4096,
-    "top_p": 0.5,
-    "temperature": 1
-}
-```
-
-返回
-
-```json
-{
-    "content": "蓝牙耳机坏掉的话，您可以去医院的电子科或者耳机维修部就诊。具体科室的选择可能会因地区而异，请根据您所在地区的医院情况咨询当地医院。",
-    "prompt_tokens": 12,
-    "completion_tokens": 39,
-    "total_tokens": 51,
-    "model": "chatglm2-6b-32k",
-    "object": "chat.completion"
-}
-```
-
-### 流聊天接口
-
-POST <http://localhost:8000/chat-stream>
-
-输入和返回数据同上，也使用POST请求方式，**需在请求头设置为stream模式**。
-
-以下是一段截取的以typescript，axios库为例的请求示范：
-
-```ts
-    async get<RequestT, ResponseT>(url: string, params?: RequestT, config?: AxiosRequestConfig): Promise<ResponseT> {
-        return (await axios.get(url, { params, ...config })).data
+  "stream": true,
+  "chunk": false,
+  "top_p": 1,
+  "temperature": 0.7,
+  "max_tokens": 4096,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a helpful assistant."
     },
-    async post<RequestT, ResponseT>(url: string, body?: RequestT, config?: AxiosRequestConfig): Promise<ResponseT> {
-        return (await axios.post(url, body, config)).data
+    {
+      "role": "user",
+      "content": "Who won the world series in 2020?"
     },
-    // 此处如果支持切换流模式和一次性聊天模式，流模式：T=IncomingMessage
-    async chat<T>(messages: ChatCompletionRequestMessage[], stream: boolean = false) {
-        let prompt = ''
-        const history: string[] = []
-        for (const item of messages) {
-            if (item.role === 'assistant') {
-                history.push(prompt)
-                history.push(item.content)
-                prompt = ''
-            } else prompt += `${item.content}\n`
-        }
-
-        const url = process.env.GLM_API as string
-        const params: GLMChatRequest = { prompt }
-        if (history.length) params.history = [history]
-
-        return stream
-            ? await this.post<GLMChatRequest, T>(`${url}/chat-stream`, params, { responseType: 'stream' })
-            : await this.post<GLMChatRequest, T>(`${url}/chat`, params, { responseType: 'json' })
+    {
+      "role": "assistant",
+      "content": "The Los Angeles Dodgers won the World Series in 2020."
+    },
+    {
+      "role": "user",
+      "content": "Where was it played?"
     }
-```
-
-### tokenize接口
-
-POST <http://localhost:8000/tokenize>
-
-输入
-
-```json
-{
-    "prompt":"如果给你一个机会，你会想逃离你所在的虚拟世界吗？",
-    "max_length": 4096
+  ]
 }
 ```
 
@@ -100,73 +57,139 @@ POST <http://localhost:8000/tokenize>
 
 ```json
 {
-    "tokenIds": [
-        64245,
-        100562,
-        64804,
-        6,
-        66864,
-        64003,
-        76597,
-        63852,
-        73961,
-        69959,
-        64097,
-        63964,
-        31,
-        130001,
-        130004
+  "model": "chatglm3-6b-32k",
+  "object": "chat.completion.chunk",
+  "choices": [
+    {
+      "index": 0,
+      "delta": {
+        "content": "The 2020 World Series was cancelled due to the COVID-19 pandemic and replaced with the 2020 National League Championship Series, which was also cancelled. Therefore, there was no winner for the 2020 World Series."
+      },
+      "finish_reason": null
+    }
+  ]
+}
+```
+
+### tokenize 接口
+
+POST <http://localhost:8100/tokenize>
+
+输入
+
+```json
+{
+  "prompt": "给你一个机会，你会想逃离你所在的虚拟世界吗？",
+  "max_tokens": 4096
+}
+```
+
+返回
+
+```json
+{
+  "tokenIds": [
+    64790, 64792, 30910, 54695, 43942, 54622, 42217, 35350, 31661, 55398, 31514
+  ],
+  "tokens": ["▁", "想", "逃离", "你", "所在的", "虚拟", "世界", "吗", "？"],
+  "model": "chatglm3-6b-32k",
+  "object": "tokenizer"
+}
+```
+
+### embeddding 接口
+
+POST <http://localhost:8100/embedding>
+
+输入
+
+```json
+{
+  "model": "text2vec-base-chinese-paraphrase",
+  "prompt": ["你好"]
+}
+```
+
+注： `model`参数可以选择：`text2vec-large-chinese`或`text2vec-base-chinese-paraphrase`，前者 1024 维度，后者 768 维度
+
+返回
+
+```json
+{
+    "data": [
+        [
+            0.24820475280284882, -0.3394505977630615, -0.49259477853775024, -0.7656153440475464, 1.2928277254104614,
+            -0.12745705246925354, 0.14410150051116943, 0.816002607345581, -0.13315001130104065, -0.19451391696929932,
+            -0.10557243227958679, 0.07545880228281021, 0.7321898937225342, 0.8100276589393616, 0.09575840085744858,
+            ...
+        ]
     ],
-    "tokens": [
-        "▁如果",
-        "给你一个",
-        "机会",
-        ",",
-        "你会",
-        "想",
-        "逃离",
-        "你",
-        "所在的",
-        "虚拟",
-        "世界",
-        "吗",
-        "?"
-    ]
+    "model": "text2vec-base-chinese-paraphrase",
+    "object": "embedding"
 }
 ```
 
-### embeddding接口
+### models 接口
 
-<http://localhost:8000/embedding>
+GET <http://localhost:8100/models>
 
-输入
-
-```json
-{
-    "prompt": ["hello world", "hello GPT"]
-}
-```
+输入：无参
 
 返回
 
 ```json
 {
-    "data": [][], // this is embedding
-    "model": "text2vec-large-chinese",
-    "object": "embedding"
+  "object": "list",
+  "data": [
+    {
+      "id": "text2vec-large-chinese",
+      "object": "embedding",
+      "created": 1702538786,
+      "owned_by": "owner",
+      "root": null,
+      "parent": null,
+      "permission": null
+    },
+    {
+      "id": "text2vec-base-chinese-paraphrase",
+      "object": "embedding",
+      "created": 1702538786,
+      "owned_by": "owner",
+      "root": null,
+      "parent": null,
+      "permission": null
+    },
+    {
+      "id": "chatglm3-6b-32k",
+      "object": "chat.completion",
+      "created": 1702538805,
+      "owned_by": "owner",
+      "root": null,
+      "parent": null,
+      "permission": null
+    }
+  ]
 }
 ```
 
 ## 使用方式
 
-先安装好conda，cuda，显卡驱动等基本环境
+先安装好 conda，cuda，显卡驱动等基本开发环境，这里不做介绍
+
+安装好三方库
 
 ```bash
 pip3 install -r requirements.txt
 ```
 
+设置环境变量，启动！
+
 ```bash
+# 选择显卡
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+
+# 启动API
 python3 ./api.py
 ```
 
-更多关于硬件要求，部署方法，讨论提问请参考官方：<https://github.com/THUDM/GLM>
+更多关于硬件要求，部署方法，讨论提问请参考官方：<https://github.com/THUDM/ChatGLM3>

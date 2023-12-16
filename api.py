@@ -1,9 +1,11 @@
+# system lib
+import os
 import json
-import argparse
 import time
 from contextlib import asynccontextmanager
 from typing import List, Literal, Optional, Union
 
+# 3rd lib
 import torch
 import uvicorn
 from text2vec import SentenceModel
@@ -11,9 +13,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoModel
 
-from utils import process_response, generate_chatglm3, generate_stream_chatglm3
+# my util
+from utils import process_response, generate_chatglm3, generate_stream_chatglm3, load_model_on_gpus
 
 MODEL = 'chatglm3-6b-32k'
 
@@ -24,7 +27,6 @@ async def lifespan(app: FastAPI):  # collects GPU memory
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.ipc_collect()
-
 
 app = FastAPI(lifespan=lifespan)
 
@@ -128,14 +130,22 @@ class TokenizeRequest(BaseModel):
 class TokenizeResponse(BaseModel):
     tokenIds: List[int]
     tokens: List[str]
+    model: str
+    object: str
 
 
 @app.get("/models", response_model=ModelList)
 async def list_models():
     global model, tokenizer
-    models = [ModelCard(id="text2vec-large-chinese")]
+    models = [
+        ModelCard(id="text2vec-large-chinese", object="embedding"),
+        ModelCard(id="text2vec-base-chinese-paraphrase", object="embedding")
+    ]
+
     if model is not None and tokenizer is not None:
-        models.append(ModelCard(id="chatglm3-6b-32k"))
+        models.append(ModelCard(id="chatglm3-6b-32k",
+                      object="chat.completion"))
+
     return ModelList(data=models)
 
 
@@ -187,7 +197,7 @@ async def create_chat_completion(request: ChatCompletionRequest):
         if isinstance(content, dict):
             message, finish_reason = ChatMessage(
                 role="assistant",
-                content=json.dumps(content, ensure_ascii=False),
+                content=json.dumps(content),
             ), "function_call"
         else:
             message = ChatMessage(role="assistant", content=content)
@@ -228,7 +238,7 @@ async def tokenize(request: TokenizeRequest):
     tokens = tokenizer.tokenize(request.prompt)
     tokenIds = tokenizer(request.prompt, truncation=True,
                          max_length=request.max_tokens)['input_ids']
-    return TokenizeResponse(tokenIds=tokenIds, tokens=tokens)
+    return TokenizeResponse(tokenIds=tokenIds, tokens=tokens, model=MODEL, object="tokenizer")
 
 
 async def predict(model_id: str, params: dict):
@@ -245,7 +255,7 @@ async def predict(model_id: str, params: dict):
     )
     chunk = ChatCompletionResponse(model=model_id, choices=[
                                    choice_data], object="chat.completion.chunk")
-    yield "{}".format(chunk.json(exclude_unset=True, ensure_ascii=False))
+    yield "{}".format(chunk.model_dump_json(exclude_unset=True))
 
     previous_text = ""
     for new_response in generate_stream_chatglm3(model, tokenizer, params):
@@ -264,7 +274,7 @@ async def predict(model_id: str, params: dict):
             )
             chunk = ChatCompletionResponse(model=model_id, choices=[
                 choice_data], object="chat.completion.chunk")
-            yield "{}".format(chunk.json(exclude_unset=True, ensure_ascii=False))
+            yield "{}".format(chunk.model_dump_json(exclude_unset=True))
 
     choice_data = ChatCompletionResponseStreamChoice(
         index=0,
@@ -273,27 +283,67 @@ async def predict(model_id: str, params: dict):
     )
     chunk = ChatCompletionResponse(model=model_id, choices=[
                                    choice_data], object="chat.completion.chunk")
-    yield "{}".format(chunk.json(exclude_unset=True, ensure_ascii=False))
+    yield "{}".format(chunk.model_dump_json(exclude_unset=True, ensure_ascii=False))
     yield '[DONE]'
 
 
+def list_cuda():
+    # count all cuda
+    cuda_devices = [torch.device(f'cuda:{i}')
+                    for i in range(torch.cuda.device_count())]
+
+    # print each cuda info
+    for device in cuda_devices:
+        device_name = torch.cuda.get_device_name(device)
+        device_index = device.index
+        is_available = torch.cuda.is_available()
+        print(
+            f"Device name: {device_name}, Device index: {device_index}, Is available: {is_available}")
+
+
+def list_cuda():
+    print("CUDA_VISIBLE_DEVICES", os.environ["CUDA_VISIBLE_DEVICES"])
+    # Check if CUDA is available before proceeding
+    for i in range(torch.cuda.device_count()):
+        device_name = torch.cuda.get_device_name(i)
+        print(
+            f"Device name: {device_name}, Device index: {i}, Is available: True")
+
+
+def get_model_path(remote_path):
+    """检查模型是否在本地存在，如果存在则返回本地路径，否则返回远程路径"""
+    local_path = f"./model/{remote_path.split('/')[-1]}"
+    return local_path if os.path.exists(local_path) else remote_path
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Run GLM API')
-    parser.add_argument('num_gpus', type=int, help='Number of GPUs to use')
-    args = parser.parse_args()
+    available_cuda = torch.cuda.is_available()
+    available_gpus = torch.cuda.device_count()
 
-    if torch.cuda.is_available():
-        tokenizer = AutoTokenizer.from_pretrained(
-            "THUDM/chatglm3-6b-32k", trust_remote_code=True)
-        from utils import load_model_on_gpus
-        model = load_model_on_gpus("THUDM/chatglm3-6b-32k", num_gpus=args.num_gpus)
+    # 模型路径
+    chatglm_path = get_model_path('THUDM/chatglm3-6b-32k')
+    text2vec_large_path = get_model_path('GanymedeNil/text2vec-large-chinese')
+    text2vec_paraph_path = get_model_path(
+        'shibing624/text2vec-base-chinese-paraphrase')
+
+    # 加载tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(
+        chatglm_path, trust_remote_code=True)
+
+    # 根据可用性选择加载模型到GPU或CPU
+    if available_cuda and available_gpus > 0:
+        print('GPU mode')
+        list_cuda()  # 列出CUDA设备
+        model = load_model_on_gpus(chatglm_path, available_gpus)
     else:
-        model = None
-        tokenizer = None
+        print('CPU mode')
+        model = AutoModel.from_pretrained(
+            chatglm_path, trust_remote_code=True).float().to('cpu').eval()
 
+    # 加载其他模型
     encoder = {
-        'text2vec-large-chinese': SentenceModel('GanymedeNil/text2vec-large-chinese', device='cpu'),
-        'text2vec-base-chinese-paraphrase': SentenceModel('shibing624/text2vec-base-chinese-paraphrase', device='cpu')
+        'text2vec-large-chinese': SentenceModel(text2vec_large_path, device='cpu'),
+        'text2vec-base-chinese-paraphrase': SentenceModel(text2vec_paraph_path, device='cpu')
     }
 
     uvicorn.run(app, host='0.0.0.0', port=8100)

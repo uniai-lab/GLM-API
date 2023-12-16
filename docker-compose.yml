@@ -1,0 +1,8 @@
+version: '3'
+services:
+    glm-api:
+        image: glm-api:latest
+        ports:
+            - 8100:8100
+        environment:
+            - CUDA_VISIBLE_DEVICES=all
