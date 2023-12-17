@@ -1,5 +1,9 @@
 # GLM/ChatGLM API
 
+## Github
+
+<https://github.com/uni-openai/GLM-API>
+
 ## 介绍
 
 已升级 [ChatGLM3-6B-32k](https://huggingface.co/THUDM/chatglm3-6b-32k)
@@ -11,7 +15,7 @@
 原版的 ChatGLM-6B 的 API 有点少，我改了以下接口供开发者对接 GLM 使用：
 
 - 聊天接口：`/chat`，支持类似 OpenAI GPT 的流模式聊天接口（GPU 模式下可用，纯 CPU 不启动此接口，其他接口可用）
-- 表征接口：`/embedding`，引入模型 `text2vec-large-chinese`，`text2vec-base-chinese-paraphrase`，以提供 embedding 的能力 ，构建自己的向量知识库
+- 表征接口：`/embedding`，引入 HuggingFace 模型 `text2vec-large-chinese`，`text2vec-base-chinese-paraphrase`，以提供 embedding 的能力
 - 模型列出：`/models`，列出所有可用模型
 - 序列文本：`/tokenize`，将文本转为 token
 
@@ -176,6 +180,12 @@ GET <http://localhost:8100/models>
 
 先安装好 conda，cuda，显卡驱动等基本开发环境，这里不做介绍
 
+```bash
+conda create --name glm python=3.10
+
+conda activate glm
+```
+
 安装好三方库
 
 ```bash
@@ -186,10 +196,64 @@ pip3 install -r requirements.txt
 
 ```bash
 # 选择显卡
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+export CUDA_VISIBLE_DEVICES=all
 
 # 启动API
 python3 ./api.py
 ```
 
 更多关于硬件要求，部署方法，讨论提问请参考官方：<https://github.com/THUDM/ChatGLM3>
+
+## Docker
+
+Build your image if needed
+
+```bash
+docker build -t glm-api:latest .
+```
+
+Docker compose example
+
+```yml
+version: "3"
+services:
+  glm-api:
+    image: devilyouwei/glm-api:latest
+    container_name: glm-api
+    ports:
+      - 8100:8100
+    environment:
+      - CUDA_VISIBLE_DEVICES=all
+```
+
+Docker compose example (Simple version, without model files, download them manually)
+
+```bash
+git lfs install
+
+git clone https://huggingface.co/THUDM/chatglm3-6b-32k
+
+git clone https://huggingface.co/GanymedeNil/text2vec-large-chinese
+
+git clone https://huggingface.co/shibing624/text2vec-base-chinese-paraphrase
+```
+
+```yml
+version: "3"
+services:
+  glm-api:
+    image: devilyouwei/glm-api-simple:latest
+    container_name: glm-api
+    ports:
+      - 8100:8100
+    environment:
+      - CUDA_VISIBLE_DEVICES=all
+    volumes:
+      - ./model:/app/model
+```
+
+Run docker container
+
+```bash
+docker-compose up
+```
