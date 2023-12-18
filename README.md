@@ -206,13 +206,13 @@ python3 ./api.py
 
 ## Docker
 
-Build your image if needed
+**Build your image if needed**
 
 ```bash
 docker build -t glm-api:latest .
 ```
 
-Docker compose example
+**Docker compose example 1, full docker contianer with models**
 
 ```yml
 version: "3"
@@ -226,12 +226,15 @@ services:
       - CUDA_VISIBLE_DEVICES=all
 ```
 
-Docker compose example (Simple version, without model files, download them manually)
+**Docker compose example 2, simplified version, without model files, please download them manually**
 
 ```bash
 git lfs install
 
+# multi GPUs
 git clone https://huggingface.co/THUDM/chatglm3-6b-32k
+# one GPU
+git clone https://huggingface.co/THUDM/chatglm3-6b
 
 git clone https://huggingface.co/GanymedeNil/text2vec-large-chinese
 
@@ -252,7 +255,7 @@ services:
       - ./model:/app/model
 ```
 
-Run docker container
+**Run docker container**
 
 ```bash
 docker-compose up

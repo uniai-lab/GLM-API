@@ -4,6 +4,10 @@ import json
 import time
 from contextlib import asynccontextmanager
 from typing import List, Literal, Optional, Union
+from contextlib import asynccontextmanager
+import time
+import json
+import os
 
 # 3rd lib
 import torch
@@ -283,7 +287,7 @@ async def predict(model_id: str, params: dict):
     )
     chunk = ChatCompletionResponse(model=model_id, choices=[
                                    choice_data], object="chat.completion.chunk")
-    yield "{}".format(chunk.model_dump_json(exclude_unset=True, ensure_ascii=False))
+    yield "{}".format(chunk.model_dump_json(exclude_unset=True))
     yield '[DONE]'
 
 
@@ -321,24 +325,33 @@ if __name__ == "__main__":
     available_gpus = torch.cuda.device_count()
 
     # 模型路径
-    chatglm_path = get_model_path('THUDM/chatglm3-6b-32k')
+    chatglm_large_path = get_model_path('THUDM/chatglm3-6b-32k')
+    chatglm_path = get_model_path('THUDM/chatglm3-6b')
     text2vec_large_path = get_model_path('GanymedeNil/text2vec-large-chinese')
     text2vec_paraph_path = get_model_path(
         'shibing624/text2vec-base-chinese-paraphrase')
 
-    # 加载tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(
-        chatglm_path, trust_remote_code=True)
+    print('gpus', available_gpus)
 
     # 根据可用性选择加载模型到GPU或CPU
     if available_cuda and available_gpus > 0:
         print('GPU mode')
         list_cuda()  # 列出CUDA设备
-        model = load_model_on_gpus(chatglm_path, available_gpus)
+        if available_gpus > 1:
+            model = load_model_on_gpus(chatglm_large_path, available_gpus)
+            tokenizer = AutoTokenizer.from_pretrained(
+                chatglm_large_path, trust_remote_code=True)
+        else:
+            model = AutoModel.from_pretrained(
+                chatglm_path, trust_remote_code=True).cuda()
+            tokenizer = AutoTokenizer.from_pretrained(
+                chatglm_path, trust_remote_code=True)
     else:
         print('CPU mode')
         model = AutoModel.from_pretrained(
-            chatglm_path, trust_remote_code=True).float().to('cpu').eval()
+            chatglm_path, trust_remote_code=True).float().to('cpu')
+        tokenizer = AutoTokenizer.from_pretrained(
+            chatglm_path, trust_remote_code=True)
 
     # 加载其他模型
     encoder = {
@@ -346,4 +359,4 @@ if __name__ == "__main__":
         'text2vec-base-chinese-paraphrase': SentenceModel(text2vec_paraph_path, device='cpu')
     }
 
-    uvicorn.run(app, host='0.0.0.0', port=8100)
+    uvicorn.run(app, host='0.0.0.0', port=8200)
