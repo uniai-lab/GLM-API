@@ -1,2 +1,3 @@
 model/
 !model/.gitkeep
+__pycache__
