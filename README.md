@@ -1,8 +1,21 @@
 # GLM/ChatGLM API
 
-## Github
+## 体验我们的应用
 
-<https://github.com/uni-openai/GLM-API>
+**乐聊Pro版:**
+
+<https://lechat.cas-ll.cn>
+
+**开源地址：**
+
+前端：<https://github.com/uni-openai/lechat-pro>
+
+后端：<https://github.com/uni-openai/uniai-maas>
+
+
+**乐聊小程序版:**
+
+<img src="https://github.com/uni-openai/uniai-maas/raw/main/qrcode.jpg" width=120px>
 
 ## 介绍
 
