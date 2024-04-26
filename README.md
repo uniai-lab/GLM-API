@@ -1,8 +1,20 @@
 # GLM/ChatGLM API
 
-## Github
+## 体验我们的应用
 
-[https://github.com/uni-openai/GLM-API](https://github.com/uni-openai/GLM-API)
+**乐聊 Pro 版:**
+
+<https://lechat.cas-ll.cn>
+
+**开源地址：**
+
+前端：<https://github.com/uni-openai/lechat-pro>
+
+后端：<https://github.com/uni-openai/uniai-maas>
+
+**乐聊小程序版:**
+
+<img src="https://github.com/uni-openai/uniai-maas/raw/main/qrcode.jpg" width=120px>
 
 ## 介绍
 
@@ -15,10 +27,10 @@
 原版的 ChatGLM-6B 的 API 有点少，我改了以下接口供开发者对接 GLM 使用：
 
 - 聊天接口：`/chat`，支持类似 OpenAI GPT 的流模式聊天接口（GPU 模式下可用，纯 CPU 不启动此接口，其他接口可用）
-- 表征接口：`/embedding`，引入 HuggingFace 模型 `text2vec-large-chinese`，`text2vec-base-chinese-paraphrase`，以提供 embedding 的能力
+- 表征接口：`/embedding`，引入模型 `text2vec-large-chinese`，`text2vec-base-chinese-paraphrase`，以提供 embedding 的能力
 - 模型列出：`/models`，列出所有可用模型
 - 序列文本：`/tokenize`，将文本转为 token
-- 提取关键词：/keyword，提取文本中的关键词
+- 提取关键词：`/keyword`，提取文本中的关键词
 
 **要使用聊天接口 `/chat` 则必须使用 GPU 机器！必须使用 GPU 机器！必须使用 GPU 机器！**
 
@@ -26,7 +38,7 @@
 
 ### 聊天
 
-POST [http://localhost:8100/chat](http://localhost:8100/chat)
+POST <http://localhost:8200/chat>
 
 输入
 
@@ -78,7 +90,7 @@ POST [http://localhost:8100/chat](http://localhost:8100/chat)
 
 ### tokenize 接口
 
-POST [http://localhost:8100/tokenize](http://localhost:8100/tokenize)
+POST <http://localhost:8200/tokenize>
 
 输入
 
@@ -93,9 +105,7 @@ POST [http://localhost:8100/tokenize](http://localhost:8100/tokenize)
 
 ```json
 {
-  "tokenIds": [
-    64790, 64792, 30910, 54695, 43942, 54622, 42217, 35350, 31661, 55398, 31514
-  ],
+  "tokenIds": [ 64790, 64792, 30910, 54695, 43942, 54622, 42217, 35350, 31661, 55398, 31514 ],
   "tokens": ["▁", "想", "逃离", "你", "所在的", "虚拟", "世界", "吗", "？"],
   "model": "chatglm3-6b-32k",
   "object": "tokenizer"
@@ -104,7 +114,7 @@ POST [http://localhost:8100/tokenize](http://localhost:8100/tokenize)
 
 ### embeddding 接口
 
-POST [http://localhost:8100/embedding](http://localhost:8100/embedding)
+POST <http://localhost:8200/embedding>
 
 输入
 
@@ -115,28 +125,60 @@ POST [http://localhost:8100/embedding](http://localhost:8100/embedding)
 }
 ```
 
-注： `model`参数可以选择：`<http://localhost:8100/models>`
+注： `model`参数可以选择：<http://localhost:8200/models>
 
 返回
 
 ```json
 {
-    "data": [
-        [
-            0.24820475280284882, -0.3394505977630615, -0.49259477853775024, -0.7656153440475464, 1.2928277254104614,
-            -0.12745705246925354, 0.14410150051116943, 0.816002607345581, -0.13315001130104065, -0.19451391696929932,
-            -0.10557243227958679, 0.07545880228281021, 0.7321898937225342, 0.8100276589393616, 0.09575840085744858,
-            ...
-        ]
-    ],
-    "model": "text2vec-base-chinese-paraphrase",
-    "object": "embedding"
+  "data": [
+    [
+      0.24820475280284882, -0.3394505977630615, -0.49259477853775024,
+      -0.7656153440475464, 1.2928277254104614, -0.12745705246925354,
+      0.14410150051116943, 0.816002607345581, -0.13315001130104065,
+      -0.19451391696929932, -0.10557243227958679, 0.07545880228281021,
+      0.7321898937225342, 0.8100276589393616, 0.09575840085744858
+      // ...
+    ]
+  ],
+  "model": "text2vec-base-chinese-paraphrase",
+  "object": "embedding"
 }
 ```
 
+### Keyword 接口
+
+POST <http://localhost:8200/keyword>
+
+输入
+
+```json
+{
+  "input": "4月25日，周鸿祎微博发文，称今天在北京车展试了试智界S7，空间很大，很舒服，安全性能和零重力也让我印象深刻，非常适合我这种“后座司机”。我今天就是坐M9来的，老余很早就把车送到360楼下，那么忙还专门打电话问我车收到没有。我很感动也很感谢。还是那句话，我永远支持老余支持华为，为国产新能车唱赞歌。",
+  "model": "text2vec-base-chinese-sentence",
+  "vocab": ["华为", "周鸿祎", "360", "新能源车", "智界", "工业", "其他"]
+}
+```
+
+返回
+
+```json
+{
+  "model": "text2vec-base-chinese-sentence",
+  "keywords": [
+    { "name": "周鸿祎", "similarity": 0.8939 },
+    { "name": "智界", "similarity": 0.8654 },
+    { "name": "360", "similarity": 0.8578 },
+    { "name": "华为", "similarity": 0.8473 }
+  ]
+}
+```
+
+注： `model`参数可以选择：<http://localhost:8200/models>
+
 ### models 接口
 
-GET [http://localhost:8100/models](http://localhost:8100/models)
+GET <http://localhost:8200/models>
 
 输入：无参
 
