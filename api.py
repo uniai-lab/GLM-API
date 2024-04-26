@@ -394,6 +394,7 @@ if __name__ == "__main__":
             tokenizer = AutoTokenizer.from_pretrained(
                 chatglm_path, trust_remote_code=True)
     else:
+        model = None
         print('CPU mode, ChatGLM-6B model is not active')
 
     # embedding models
