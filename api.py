@@ -12,12 +12,14 @@ import os
 # 3rd lib
 import torch
 import uvicorn
+import jieba
 from text2vec import SentenceModel
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 from transformers import AutoTokenizer, AutoModel
+from keybert import KeyBERT
 
 # my util
 from utils import process_response, generate_chatglm3, generate_stream_chatglm3, load_model_on_gpus
@@ -138,12 +140,38 @@ class TokenizeResponse(BaseModel):
     object: str
 
 
+class KeywordRequest(BaseModel):
+    input: Union[str, List[str]]
+    vocab: List[str] = None
+    model: Optional[str] = 'text2vec-large-chinese'
+    top_n: Optional[int] = 5
+
+
+class Keyword(BaseModel):
+    name: str
+    similarity: float
+
+
+class KeywordResponse(BaseModel):
+    model: str
+    keywords: List[Keyword]
+
+
 @app.get("/models", response_model=ModelList)
 async def list_models():
     global model, tokenizer
     models = [
+        ModelCard(id="text2vec-base-chinese", object="embedding"),
         ModelCard(id="text2vec-large-chinese", object="embedding"),
-        ModelCard(id="text2vec-base-chinese-paraphrase", object="embedding")
+        ModelCard(id="text2vec-base-chinese-paraphrase", object="embedding"),
+        ModelCard(id="text2vec-base-chinese-sentence", object="embedding"),
+        ModelCard(id="paraphrase-multilingual-MiniLM-L12-v2",
+                  object="embedding"),
+        ModelCard(id="text2vec-base-chinese", object="keyword"),
+        ModelCard(id="text2vec-large-chinese", object="keyword"),
+        ModelCard(id="text2vec-base-chinese-paraphrase", object="keyword"),
+        ModelCard(id="text2vec-base-chinese-sentence", object="keyword"),
+        ModelCard(id="paraphrase-multilingual-MiniLM-L12-v2", object="keyword")
     ]
 
     if model is not None and tokenizer is not None:
@@ -245,6 +273,20 @@ async def tokenize(request: TokenizeRequest):
     return TokenizeResponse(tokenIds=tokenIds, tokens=tokens, model=MODEL, object="tokenizer")
 
 
+@app.post('/keyword', response_model=KeywordResponse)
+async def keyword(request: KeywordRequest):
+    global kwModel
+
+    doc = request.input = " ".join(jieba.cut(request.input))
+    model = kwModel[request.model]
+    data = model.extract_keywords(
+        doc, candidates=request.vocab, top_n=request.top_n)
+
+    keywords = [Keyword(name=word, similarity=score) for word, score in data]
+
+    return KeywordResponse(model=request.model, keywords=keywords)
+
+
 async def predict(model_id: str, params: dict):
     global model, tokenizer
 
@@ -327,9 +369,14 @@ if __name__ == "__main__":
     # 模型路径
     chatglm_large_path = get_model_path('THUDM/chatglm3-6b-32k')
     chatglm_path = get_model_path('THUDM/chatglm3-6b')
+    text2vec_base_path = get_model_path('shibing624/text2vec-base-chinese')
     text2vec_large_path = get_model_path('GanymedeNil/text2vec-large-chinese')
     text2vec_paraph_path = get_model_path(
         'shibing624/text2vec-base-chinese-paraphrase')
+    text2vec_sentence_path = get_model_path(
+        'shibing624/text2vec-base-chinese-sentence')
+    paraph_mul_path = get_model_path(
+        'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
 
     print('gpus', available_gpus)
 
@@ -347,16 +394,24 @@ if __name__ == "__main__":
             tokenizer = AutoTokenizer.from_pretrained(
                 chatglm_path, trust_remote_code=True)
     else:
-        print('CPU mode')
-        model = AutoModel.from_pretrained(
-            chatglm_path, trust_remote_code=True).float().to('cpu')
-        tokenizer = AutoTokenizer.from_pretrained(
-            chatglm_path, trust_remote_code=True)
+        print('CPU mode, ChatGLM-6B model is not active')
 
-    # 加载其他模型
+    # embedding models
     encoder = {
         'text2vec-large-chinese': SentenceModel(text2vec_large_path, device='cpu'),
-        'text2vec-base-chinese-paraphrase': SentenceModel(text2vec_paraph_path, device='cpu')
+        'text2vec-base-chinese': SentenceModel(text2vec_base_path, device='cpu'),
+        'text2vec-base-chinese-sentence': SentenceModel(text2vec_sentence_path, device='cpu'),
+        'text2vec-base-chinese-paraphrase': SentenceModel(text2vec_paraph_path, device='cpu'),
+        'paraphrase-multilingual-MiniLM-L12-v2': SentenceModel(paraph_mul_path, device='cpu'),
+    }
+
+    # keywords models
+    kwModel = {
+        'text2vec-large-chinese': KeyBERT(model=text2vec_large_path),
+        'text2vec-base-chinese': KeyBERT(model=text2vec_base_path),
+        'text2vec-base-chinese-sentence': KeyBERT(model=text2vec_sentence_path),
+        'text2vec-base-chinese-paraphrase': KeyBERT(model=text2vec_paraph_path),
+        'paraphrase-multilingual-MiniLM-L12-v2': KeyBERT(model=paraph_mul_path),
     }
 
     uvicorn.run(app, host='0.0.0.0', port=8200)

@@ -2,7 +2,7 @@
 
 ## Github
 
-<https://github.com/uni-openai/GLM-API>
+[https://github.com/uni-openai/GLM-API](https://github.com/uni-openai/GLM-API)
 
 ## 介绍
 
@@ -18,6 +18,7 @@
 - 表征接口：`/embedding`，引入 HuggingFace 模型 `text2vec-large-chinese`，`text2vec-base-chinese-paraphrase`，以提供 embedding 的能力
 - 模型列出：`/models`，列出所有可用模型
 - 序列文本：`/tokenize`，将文本转为 token
+- 提取关键词：/keyword，提取文本中的关键词
 
 **要使用聊天接口 `/chat` 则必须使用 GPU 机器！必须使用 GPU 机器！必须使用 GPU 机器！**
 
@@ -25,7 +26,7 @@
 
 ### 聊天
 
-POST <http://localhost:8100/chat>
+POST [http://localhost:8100/chat](http://localhost:8100/chat)
 
 输入
 
@@ -77,7 +78,7 @@ POST <http://localhost:8100/chat>
 
 ### tokenize 接口
 
-POST <http://localhost:8100/tokenize>
+POST [http://localhost:8100/tokenize](http://localhost:8100/tokenize)
 
 输入
 
@@ -103,7 +104,7 @@ POST <http://localhost:8100/tokenize>
 
 ### embeddding 接口
 
-POST <http://localhost:8100/embedding>
+POST [http://localhost:8100/embedding](http://localhost:8100/embedding)
 
 输入
 
@@ -114,7 +115,7 @@ POST <http://localhost:8100/embedding>
 }
 ```
 
-注： `model`参数可以选择：`text2vec-large-chinese`或`text2vec-base-chinese-paraphrase`，前者 1024 维度，后者 768 维度
+注： `model`参数可以选择：`<http://localhost:8100/models>`
 
 返回
 
@@ -135,7 +136,7 @@ POST <http://localhost:8100/embedding>
 
 ### models 接口
 
-GET <http://localhost:8100/models>
+GET [http://localhost:8100/models](http://localhost:8100/models)
 
 输入：无参
 
@@ -202,7 +203,7 @@ export CUDA_VISIBLE_DEVICES=all
 python3 ./api.py
 ```
 
-更多关于硬件要求，部署方法，讨论提问请参考官方：<https://github.com/THUDM/ChatGLM3>
+更多关于硬件要求，部署方法，讨论提问请参考官方：[https://github.com/THUDM/ChatGLM3](https://github.com/THUDM/ChatGLM3)
 
 ## Docker
 
