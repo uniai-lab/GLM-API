@@ -154,9 +154,13 @@ POST <http://localhost:8200/keyword>
 
 ```json
 {
-  "input": "4月25日，周鸿祎微博发文，称今天在北京车展试了试智界S7，空间很大，很舒服，安全性能和零重力也让我印象深刻，非常适合我这种“后座司机”。我今天就是坐M9来的，老余很早就把车送到360楼下，那么忙还专门打电话问我车收到没有。我很感动也很感谢。还是那句话，我永远支持老余支持华为，为国产新能车唱赞歌。",
-  "model": "text2vec-base-chinese-sentence",
-  "vocab": ["华为", "周鸿祎", "360", "新能源车", "智界", "工业", "其他"]
+    "input": "4月25日，周鸿祎微博发文，称今天在北京车展试了试智界S7，空间很大，很舒服，安全性能和零重力也让我印象深刻，非常适合我这种“后座司机”。我今天就是坐M9来的，老余很早就把车送到360楼下，那么忙还专门打电话问我车收到没有。我很感动也很感谢。还是那句话，我永远支持老余支持华为，为国产新能车唱赞歌。",
+    "model": "text2vec-base-multilingual",
+    "vocab": [ "华为", "周鸿祎", "360", "新能源车", "智界", "工业", "其他" ],
+    "top": 5,
+    "mmr": true,
+    "maxsum": true,
+    "diversity": 0.7
 }
 ```
 
@@ -164,13 +168,13 @@ POST <http://localhost:8200/keyword>
 
 ```json
 {
-  "model": "text2vec-base-chinese-sentence",
-  "keywords": [
-    { "name": "周鸿祎", "similarity": 0.8939 },
-    { "name": "智界", "similarity": 0.8654 },
-    { "name": "360", "similarity": 0.8578 },
-    { "name": "华为", "similarity": 0.8473 }
-  ]
+    "model": "text2vec-base-multilingual",
+    "keywords": [
+        { "name": "华为", "similarity": 0.8273 },
+        { "name": "智界", "similarity": 0.7768 },
+        { "name": "周鸿祎", "similarity": 0.7615 },
+        { "name": "360", "similarity": 0.7084 }
+    ]
 }
 ```
 

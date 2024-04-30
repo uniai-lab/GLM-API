@@ -24,7 +24,7 @@ from keybert import KeyBERT
 # my util
 from utils import process_response, generate_chatglm3, generate_stream_chatglm3, load_model_on_gpus
 
-MODEL = 'chatglm3-6b-32k'
+MODEL = 'chatglm3-6b'
 
 
 @asynccontextmanager
@@ -74,6 +74,7 @@ class DeltaMessage(BaseModel):
 
 class ChatCompletionRequest(BaseModel):
     messages: List[ChatMessage]
+    model: Optional[str] = MODEL
     temperature: Optional[float] = 0.7
     top_p: Optional[float] = 1.0
     max_tokens: Optional[int] = 4096
@@ -144,7 +145,10 @@ class KeywordRequest(BaseModel):
     input: Union[str, List[str]]
     vocab: List[str] = None
     model: Optional[str] = 'text2vec-large-chinese'
-    top_n: Optional[int] = 5
+    top: Optional[int] = 10
+    mmr: Optional[bool] = False
+    maxsum: Optional[bool] = False
+    diversity: Optional[float] = 0.3
 
 
 class Keyword(BaseModel):
@@ -165,12 +169,14 @@ async def list_models():
         ModelCard(id="text2vec-large-chinese", object="embedding"),
         ModelCard(id="text2vec-base-chinese-paraphrase", object="embedding"),
         ModelCard(id="text2vec-base-chinese-sentence", object="embedding"),
+        ModelCard(id="text2vec-base-multilingual", object="embedding"),
         ModelCard(id="paraphrase-multilingual-MiniLM-L12-v2",
                   object="embedding"),
         ModelCard(id="text2vec-base-chinese", object="keyword"),
         ModelCard(id="text2vec-large-chinese", object="keyword"),
         ModelCard(id="text2vec-base-chinese-paraphrase", object="keyword"),
         ModelCard(id="text2vec-base-chinese-sentence", object="keyword"),
+        ModelCard(id="text2vec-base-multilingual", object="keyword"),
         ModelCard(id="paraphrase-multilingual-MiniLM-L12-v2", object="keyword")
     ]
 
@@ -216,7 +222,7 @@ async def create_chat_completion(request: ChatCompletionRequest):
     )
 
     if request.stream:
-        generate = predict(MODEL, gen_params)
+        generate = predict(gen_params)
         return EventSourceResponse(generate, media_type="text/event-stream")
 
     response = generate_chatglm3(model, tokenizer, gen_params)
@@ -280,14 +286,14 @@ async def keyword(request: KeywordRequest):
     doc = request.input = " ".join(jieba.cut(request.input))
     model = kwModel[request.model]
     data = model.extract_keywords(
-        doc, candidates=request.vocab, top_n=request.top_n)
+        doc, candidates=request.vocab, top_n=request.top, use_maxsum=request.maxsum, use_mmr=request.mmr, diversity=request.diversity)
 
     keywords = [Keyword(name=word, similarity=score) for word, score in data]
 
     return KeywordResponse(model=request.model, keywords=keywords)
 
 
-async def predict(model_id: str, params: dict):
+async def predict(params: dict):
     global model, tokenizer
 
     if model is None or tokenizer is None:
@@ -299,7 +305,7 @@ async def predict(model_id: str, params: dict):
         delta=DeltaMessage(role="assistant"),
         finish_reason=None
     )
-    chunk = ChatCompletionResponse(model=model_id, choices=[
+    chunk = ChatCompletionResponse(model=MODEL, choices=[
                                    choice_data], object="chat.completion.chunk")
     yield "{}".format(chunk.model_dump_json(exclude_unset=True))
 
@@ -318,7 +324,7 @@ async def predict(model_id: str, params: dict):
                 delta=DeltaMessage(content=delta_text),
                 finish_reason=None
             )
-            chunk = ChatCompletionResponse(model=model_id, choices=[
+            chunk = ChatCompletionResponse(model=MODEL, choices=[
                 choice_data], object="chat.completion.chunk")
             yield "{}".format(chunk.model_dump_json(exclude_unset=True))
 
@@ -327,7 +333,7 @@ async def predict(model_id: str, params: dict):
         delta=DeltaMessage(),
         finish_reason="stop"
     )
-    chunk = ChatCompletionResponse(model=model_id, choices=[
+    chunk = ChatCompletionResponse(model=MODEL, choices=[
                                    choice_data], object="chat.completion.chunk")
     yield "{}".format(chunk.model_dump_json(exclude_unset=True))
     yield '[DONE]'
@@ -367,16 +373,20 @@ if __name__ == "__main__":
     available_gpus = torch.cuda.device_count()
 
     # 模型路径
-    chatglm_large_path = get_model_path('THUDM/chatglm3-6b-32k')
-    chatglm_path = get_model_path('THUDM/chatglm3-6b')
-    text2vec_base_path = get_model_path('shibing624/text2vec-base-chinese')
-    text2vec_large_path = get_model_path('GanymedeNil/text2vec-large-chinese')
-    text2vec_paraph_path = get_model_path(
+    chatglm_base_path = get_model_path('THUDM/chatglm3-6b')
+    chatglm_32k_path = get_model_path('THUDM/chatglm3-6b-32k')
+    chatglm_128k_path = get_model_path('THUDM/chatglm3-6b-128k')
+    text2vec_base_cn_path = get_model_path('shibing624/text2vec-base-chinese')
+    text2vec_large_cn_path = get_model_path(
+        'GanymedeNil/text2vec-large-chinese')
+    text2vec_base_cn_paraph_path = get_model_path(
         'shibing624/text2vec-base-chinese-paraphrase')
-    text2vec_sentence_path = get_model_path(
+    text2vec_base_cn_sentence_path = get_model_path(
         'shibing624/text2vec-base-chinese-sentence')
     paraph_mul_path = get_model_path(
         'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
+    text2vec_base_mul_path = get_model_path(
+        'shibing624/text2vec-base-multilingual')
 
     print('gpus', available_gpus)
 
@@ -385,33 +395,37 @@ if __name__ == "__main__":
         print('GPU mode')
         list_cuda()  # 列出CUDA设备
         if available_gpus > 1:
-            model = load_model_on_gpus(chatglm_large_path, available_gpus)
+            print('Multi GPU: enable chatglm3-6b-128k')
+            model = load_model_on_gpus(chatglm_128k_path, available_gpus)
             tokenizer = AutoTokenizer.from_pretrained(
-                chatglm_large_path, trust_remote_code=True)
+                chatglm_128k_path, trust_remote_code=True)
         else:
+            print('Single GPU: enable chatglm3-6b-base')
             model = AutoModel.from_pretrained(
-                chatglm_path, trust_remote_code=True).cuda()
+                chatglm_base_path, trust_remote_code=True).cuda()
             tokenizer = AutoTokenizer.from_pretrained(
-                chatglm_path, trust_remote_code=True)
+                chatglm_base_path, trust_remote_code=True)
     else:
         model = None
-        print('CPU mode, ChatGLM-6B model is not active')
+        print('CPU mode, ChatGLM3-6B model is not active')
 
     # embedding models
     encoder = {
-        'text2vec-large-chinese': SentenceModel(text2vec_large_path, device='cpu'),
-        'text2vec-base-chinese': SentenceModel(text2vec_base_path, device='cpu'),
-        'text2vec-base-chinese-sentence': SentenceModel(text2vec_sentence_path, device='cpu'),
-        'text2vec-base-chinese-paraphrase': SentenceModel(text2vec_paraph_path, device='cpu'),
+        'text2vec-large-chinese': SentenceModel(text2vec_large_cn_path, device='cpu'),
+        'text2vec-base-chinese': SentenceModel(text2vec_base_cn_path, device='cpu'),
+        'text2vec-base-chinese-sentence': SentenceModel(text2vec_base_cn_sentence_path, device='cpu'),
+        'text2vec-base-chinese-paraphrase': SentenceModel(text2vec_base_cn_paraph_path, device='cpu'),
+        'text2vec-base-multilingual': SentenceModel(text2vec_base_mul_path, device='cpu'),
         'paraphrase-multilingual-MiniLM-L12-v2': SentenceModel(paraph_mul_path, device='cpu'),
     }
 
     # keywords models
     kwModel = {
-        'text2vec-large-chinese': KeyBERT(model=text2vec_large_path),
-        'text2vec-base-chinese': KeyBERT(model=text2vec_base_path),
-        'text2vec-base-chinese-sentence': KeyBERT(model=text2vec_sentence_path),
-        'text2vec-base-chinese-paraphrase': KeyBERT(model=text2vec_paraph_path),
+        'text2vec-large-chinese': KeyBERT(model=text2vec_large_cn_path),
+        'text2vec-base-chinese': KeyBERT(model=text2vec_base_cn_path),
+        'text2vec-base-chinese-sentence': KeyBERT(model=text2vec_base_cn_sentence_path),
+        'text2vec-base-chinese-paraphrase': KeyBERT(model=text2vec_base_cn_paraph_path),
+        'text2vec-base-multilingual': KeyBERT(model=text2vec_base_mul_path),
         'paraphrase-multilingual-MiniLM-L12-v2': KeyBERT(model=paraph_mul_path),
     }
 
