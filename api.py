@@ -172,12 +172,15 @@ async def list_models():
         ModelCard(id="text2vec-base-multilingual", object="embedding"),
         ModelCard(id="paraphrase-multilingual-MiniLM-L12-v2",
                   object="embedding"),
+        ModelCard(id="all-MiniLM-L12-v2", object="embedding"),
+
         ModelCard(id="text2vec-base-chinese", object="keyword"),
         ModelCard(id="text2vec-large-chinese", object="keyword"),
         ModelCard(id="text2vec-base-chinese-paraphrase", object="keyword"),
         ModelCard(id="text2vec-base-chinese-sentence", object="keyword"),
         ModelCard(id="text2vec-base-multilingual", object="keyword"),
-        ModelCard(id="paraphrase-multilingual-MiniLM-L12-v2", object="keyword")
+        ModelCard(id="paraphrase-multilingual-MiniLM-L12-v2", object="keyword"),
+        ModelCard(id="all-MiniLM-L12-v2", object="keyword")
     ]
 
     if model is not None and tokenizer is not None:
@@ -387,6 +390,8 @@ if __name__ == "__main__":
         'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
     text2vec_base_mul_path = get_model_path(
         'shibing624/text2vec-base-multilingual')
+    all_mini_12_path = get_model_path(
+        'sentence-transformers/all-MiniLM-L12-v2')
 
     print('gpus', available_gpus)
 
@@ -417,6 +422,7 @@ if __name__ == "__main__":
         'text2vec-base-chinese-paraphrase': SentenceModel(text2vec_base_cn_paraph_path, device='cpu'),
         'text2vec-base-multilingual': SentenceModel(text2vec_base_mul_path, device='cpu'),
         'paraphrase-multilingual-MiniLM-L12-v2': SentenceModel(paraph_mul_path, device='cpu'),
+        'all-MiniLM-L12-v2': SentenceModel(all_mini_12_path, device='cpu'),
     }
 
     # keywords models
@@ -427,6 +433,7 @@ if __name__ == "__main__":
         'text2vec-base-chinese-paraphrase': KeyBERT(model=text2vec_base_cn_paraph_path),
         'text2vec-base-multilingual': KeyBERT(model=text2vec_base_mul_path),
         'paraphrase-multilingual-MiniLM-L12-v2': KeyBERT(model=paraph_mul_path),
+        'all-MiniLM-L12-v2': KeyBERT(model=all_mini_12_path),
     }
 
     uvicorn.run(app, host='0.0.0.0', port=8200)
