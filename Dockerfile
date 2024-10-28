@@ -13,8 +13,7 @@ RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 RUN pip install -r requirements.txt
 
 # 暴露应用程序所需的端口（如果需要）
-EXPOSE 8100
+EXPOSE 8000
 
-# 定义启动命令，这里假设您的主文件名为 app.py
-CMD ["python", "api.py"]
+CMD ["python", "api-v2.py"]
 

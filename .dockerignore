@@ -1,3 +1,4 @@
 model/
+flagged/
 !model/.gitkeep
 __pycache__

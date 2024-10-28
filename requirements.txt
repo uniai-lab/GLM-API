@@ -10,3 +10,5 @@ keybert>=0.8.4
 jieba>=0.42.1
 oauthlib>=3.0.0
 pydantic>=1.10.4
+loguru~=0.7.2
+vllm>=0.5.0

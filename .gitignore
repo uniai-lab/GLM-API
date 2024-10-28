@@ -132,3 +132,5 @@ dmypy.json
 model/
 !model/.gitkeep
 .DS_Store
+flagged/
+*.cache

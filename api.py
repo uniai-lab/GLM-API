@@ -24,7 +24,8 @@ from keybert import KeyBERT
 # my util
 from utils import process_response, generate_chatglm3, generate_stream_chatglm3, load_model_on_gpus
 
-MODEL = 'chatglm3-6b'
+GLM_MODEL = os.environ.get("GLM_MODEL", "chatglm3-6b")
+API_PORT = os.environ.get("API_PORT", 8000)
 
 
 @asynccontextmanager
@@ -74,19 +75,12 @@ class DeltaMessage(BaseModel):
 
 class ChatCompletionRequest(BaseModel):
     messages: List[ChatMessage]
-    model: Optional[str] = MODEL
-    temperature: Optional[float] = 0.7
-    top_p: Optional[float] = 1.0
+    model: Optional[str] = GLM_MODEL
+    temperature: Optional[float] = 0.8
+    top_p: Optional[float] = 0.8
     max_tokens: Optional[int] = 4096
-    stop: Optional[Union[str, List[str]]] = None
     stream: Optional[bool] = False
-    chunk: Optional[bool] = True
-
-    # Additional parameters support for stop generation
-    stop_token_ids: Optional[List[int]] = None
     repetition_penalty: Optional[float] = 1.1
-
-    # Additional parameters supported by tools
     return_function_call: Optional[bool] = False
 
 
@@ -194,21 +188,18 @@ async def list_models():
 async def create_chat_completion(request: ChatCompletionRequest):
     global model, tokenizer
 
+    # 如果模型或分词器未初始化，抛出404异常
     if model is None or tokenizer is None:
-        raise HTTPException(status_code=404, detail="chat API not available")
+        raise HTTPException(
+            status_code=404, detail="API chat is not available")
 
-    if request.messages[-1].role == "assistant":
-        raise HTTPException(status_code=400, detail="Invalid request")
+    # 如果最后一条消息的角色是assistant，抛出400
+    if len(request.messages) < 1 or request.messages[-1].role == "assistant":
+        raise HTTPException(
+            status_code=400, detail="Invalid request message format")
 
     with_function_call = bool(
         request.messages[0].role == "system" and request.messages[0].tools is not None)
-
-    # stop settings
-    request.stop = request.stop or []
-    if isinstance(request.stop, str):
-        request.stop = [request.stop]
-
-    request.stop_token_ids = request.stop_token_ids or []
 
     gen_params = dict(
         messages=request.messages,
@@ -217,18 +208,18 @@ async def create_chat_completion(request: ChatCompletionRequest):
         max_tokens=request.max_tokens or 1024,
         echo=False,
         stream=request.stream,
-        chunk=request.chunk,
-        stop_token_ids=request.stop_token_ids,
-        stop=request.stop,
         repetition_penalty=request.repetition_penalty,
-        with_function_call=with_function_call,
     )
 
+    # In stream mode
     if request.stream:
+        print("In stream mode")
         generate = predict(gen_params)
         return EventSourceResponse(generate, media_type="text/event-stream")
 
-    response = generate_chatglm3(model, tokenizer, gen_params)
+    # Not In stream mode
+    print("Not In stream mode")
+    response = generate_chatglm3(model, tokenizer, gen_params)    
     usage = UsageInfo()
 
     finish_reason, history = "stop", None
@@ -256,7 +247,12 @@ async def create_chat_completion(request: ChatCompletionRequest):
     for usage_key, usage_value in task_usage.dict().items():
         setattr(usage, usage_key, getattr(usage, usage_key) + usage_value)
 
-    return ChatCompletionResponse(model=MODEL, choices=[choice_data], object="chat.completion", usage=usage)
+    return ChatCompletionResponse(
+        model=GLM_MODEL, 
+        choices=[choice_data], 
+        object="chat.completion", 
+        usage=usage
+    )
 
 
 @app.post('/embedding', response_model=EmbeddingResponse)
@@ -279,7 +275,7 @@ async def tokenize(request: TokenizeRequest):
     tokens = tokenizer.tokenize(request.prompt)
     tokenIds = tokenizer(request.prompt, truncation=True,
                          max_length=request.max_tokens)['input_ids']
-    return TokenizeResponse(tokenIds=tokenIds, tokens=tokens, model=MODEL, object="tokenizer")
+    return TokenizeResponse(tokenIds=tokenIds, tokens=tokens, model=GLM_MODEL, object="tokenizer")
 
 
 @app.post('/keyword', response_model=KeywordResponse)
@@ -308,18 +304,15 @@ async def predict(params: dict):
         delta=DeltaMessage(role="assistant"),
         finish_reason=None
     )
-    chunk = ChatCompletionResponse(model=MODEL, choices=[
+    chunk = ChatCompletionResponse(model=GLM_MODEL, choices=[
                                    choice_data], object="chat.completion.chunk")
     yield "{}".format(chunk.model_dump_json(exclude_unset=True))
 
     previous_text = ""
     for new_response in generate_stream_chatglm3(model, tokenizer, params):
         decoded_unicode = new_response["text"]
-        if params["chunk"]:
-            delta_text = decoded_unicode[len(previous_text):]
-            previous_text = decoded_unicode
-        else:
-            delta_text = decoded_unicode
+        delta_text = decoded_unicode[len(previous_text):]
+        previous_text = decoded_unicode
 
         if (len(delta_text)):
             choice_data = ChatCompletionResponseStreamChoice(
@@ -327,7 +320,7 @@ async def predict(params: dict):
                 delta=DeltaMessage(content=delta_text),
                 finish_reason=None
             )
-            chunk = ChatCompletionResponse(model=MODEL, choices=[
+            chunk = ChatCompletionResponse(model=GLM_MODEL, choices=[
                 choice_data], object="chat.completion.chunk")
             yield "{}".format(chunk.model_dump_json(exclude_unset=True))
 
@@ -336,7 +329,7 @@ async def predict(params: dict):
         delta=DeltaMessage(),
         finish_reason="stop"
     )
-    chunk = ChatCompletionResponse(model=MODEL, choices=[
+    chunk = ChatCompletionResponse(model=GLM_MODEL, choices=[
                                    choice_data], object="chat.completion.chunk")
     yield "{}".format(chunk.model_dump_json(exclude_unset=True))
     yield '[DONE]'
@@ -356,15 +349,6 @@ def list_cuda():
             f"Device name: {device_name}, Device index: {device_index}, Is available: {is_available}")
 
 
-def list_cuda():
-    print("CUDA_VISIBLE_DEVICES", os.environ["CUDA_VISIBLE_DEVICES"])
-    # Check if CUDA is available before proceeding
-    for i in range(torch.cuda.device_count()):
-        device_name = torch.cuda.get_device_name(i)
-        print(
-            f"Device name: {device_name}, Device index: {i}, Is available: True")
-
-
 def get_model_path(remote_path):
     """检查模型是否在本地存在，如果存在则返回本地路径，否则返回远程路径"""
     local_path = f"./model/{remote_path.split('/')[-1]}"
@@ -376,9 +360,8 @@ if __name__ == "__main__":
     available_gpus = torch.cuda.device_count()
 
     # 模型路径
-    chatglm_base_path = get_model_path('THUDM/chatglm3-6b')
-    chatglm_32k_path = get_model_path('THUDM/chatglm3-6b-32k')
-    chatglm_128k_path = get_model_path('THUDM/chatglm3-6b-128k')
+    glm_path = get_model_path(f"THUDM/{GLM_MODEL}")
+
     text2vec_base_cn_path = get_model_path('shibing624/text2vec-base-chinese')
     text2vec_large_cn_path = get_model_path(
         'GanymedeNil/text2vec-large-chinese')
@@ -397,19 +380,20 @@ if __name__ == "__main__":
 
     # 根据可用性选择加载模型到GPU或CPU
     if available_cuda and available_gpus > 0:
-        print('GPU mode')
         list_cuda()  # 列出CUDA设备
+        print(f"GPU mode, use model: {GLM_MODEL}")
+
         if available_gpus > 1:
-            print('Multi GPU: enable chatglm3-6b-128k')
-            model = load_model_on_gpus(chatglm_128k_path, available_gpus)
+            print('Multi GPU')
+            model = load_model_on_gpus(glm_path, available_gpus)
             tokenizer = AutoTokenizer.from_pretrained(
-                chatglm_128k_path, trust_remote_code=True)
+                glm_path, trust_remote_code=True)
         else:
-            print('Single GPU: enable chatglm3-6b-base')
+            print('Single GPU')
             model = AutoModel.from_pretrained(
-                chatglm_base_path, trust_remote_code=True).cuda()
+                glm_path, trust_remote_code=True).half().cuda()
             tokenizer = AutoTokenizer.from_pretrained(
-                chatglm_base_path, trust_remote_code=True)
+                glm_path, trust_remote_code=True)
     else:
         model = None
         print('CPU mode, ChatGLM3-6B model is not active')
@@ -436,4 +420,4 @@ if __name__ == "__main__":
         'all-MiniLM-L12-v2': KeyBERT(model=all_mini_12_path),
     }
 
-    uvicorn.run(app, host='0.0.0.0', port=8200)
+    uvicorn.run(app, host='0.0.0.0', port=int(API_PORT))

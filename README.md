@@ -1,32 +1,19 @@
 # GLM/ChatGLM API
 
-## 体验我们的应用
-
-**乐聊 Pro 版:**
-
-<https://lechat.cas-ll.cn>
-
-**开源地址：**
-
-前端：<https://github.com/uni-openai/lechat-pro>
-
-后端：<https://github.com/uni-openai/uniai-maas>
-
-**乐聊小程序版:**
-
-<img src="https://github.com/uni-openai/uniai-maas/raw/main/qrcode.jpg" width=120px>
+【2024-6-19】已支持 **glm-4-9b** ✅
 
 ## 介绍
 
-已升级 [ChatGLM3-6B-32k](https://huggingface.co/THUDM/chatglm3-6b-32k)
+已新增 [glm-4-9b-chat](https://huggingface.co/THUDM/glm-4-9b-chat)
+已升级 [ChatGLM3-6B](https://huggingface.co/THUDM/chatglm3-6b-32k)
 
-该项目旨在使用**Python Fastapi**封装**GLM**模型的**Http 接口**，以供其他开发者像**OpenAI**一样使用**AI 服务**。
+该项目旨在使用**Python Fastapi**封装**GLM**模型的**Http 接口**，以供其他开发者像**OpenAI**一样使用**GLM 的开源大模型**。
 
 > ChatGLM-6B 是一个开源的、支持中英双语的对话语言模型，基于 [General Language Model (GLM)](https://github.com/THUDM/GLM) 架构，具有 62 亿参数。结合模型量化技术，用户可以在消费级的显卡上进行本地部署。
 
 原版的 ChatGLM-6B 的 API 有点少，我改了以下接口供开发者对接 GLM 使用：
 
-- 聊天接口：`/chat`，支持类似 OpenAI GPT 的流模式聊天接口（GPU 模式下可用，纯 CPU 不启动此接口，其他接口可用）
+- 聊天接口：`/chat`，支持类似 OpenAI GPT 的流模式聊天接口（GPU 模式下可用，纯 CPU 不启动此接口，但其他接口可用）
 - 表征接口：`/embedding`，引入模型 `text2vec-large-chinese`，`text2vec-base-chinese-paraphrase`，以提供 embedding 的能力
 - 模型列出：`/models`，列出所有可用模型
 - 序列文本：`/tokenize`，将文本转为 token
@@ -45,7 +32,6 @@ POST <http://localhost:8200/chat>
 ```json
 {
   "stream": true,
-  "chunk": false,
   "top_p": 1,
   "temperature": 0.7,
   "max_tokens": 4096,
@@ -74,7 +60,7 @@ POST <http://localhost:8200/chat>
 
 ```json
 {
-  "model": "chatglm3-6b-32k",
+  "model": "chatglm3-6b-128k",
   "object": "chat.completion.chunk",
   "choices": [
     {
@@ -105,7 +91,9 @@ POST <http://localhost:8200/tokenize>
 
 ```json
 {
-  "tokenIds": [ 64790, 64792, 30910, 54695, 43942, 54622, 42217, 35350, 31661, 55398, 31514 ],
+  "tokenIds": [
+    64790, 64792, 30910, 54695, 43942, 54622, 42217, 35350, 31661, 55398, 31514
+  ],
   "tokens": ["▁", "想", "逃离", "你", "所在的", "虚拟", "世界", "吗", "？"],
   "model": "chatglm3-6b-32k",
   "object": "tokenizer"
@@ -133,11 +121,7 @@ POST <http://localhost:8200/embedding>
 {
   "data": [
     [
-      0.24820475280284882, -0.3394505977630615, -0.49259477853775024,
-      -0.7656153440475464, 1.2928277254104614, -0.12745705246925354,
-      0.14410150051116943, 0.816002607345581, -0.13315001130104065,
-      -0.19451391696929932, -0.10557243227958679, 0.07545880228281021,
-      0.7321898937225342, 0.8100276589393616, 0.09575840085744858
+      0.24820475280284882, -0.3394505977630615, -0.49259477853775024
       // ...
     ]
   ],
@@ -154,13 +138,13 @@ POST <http://localhost:8200/keyword>
 
 ```json
 {
-    "input": "4月25日，周鸿祎微博发文，称今天在北京车展试了试智界S7，空间很大，很舒服，安全性能和零重力也让我印象深刻，非常适合我这种“后座司机”。我今天就是坐M9来的，老余很早就把车送到360楼下，那么忙还专门打电话问我车收到没有。我很感动也很感谢。还是那句话，我永远支持老余支持华为，为国产新能车唱赞歌。",
-    "model": "text2vec-base-multilingual",
-    "vocab": [ "华为", "周鸿祎", "360", "新能源车", "智界", "工业", "其他" ],
-    "top": 5,
-    "mmr": true,
-    "maxsum": true,
-    "diversity": 0.7
+  "input": "4月25日，周鸿祎微博发文，称今天在北京车展试了试智界S7，空间很大，很舒服，安全性能和零重力也让我印象深刻，非常适合我这种“后座司机”。我今天就是坐M9来的，老余很早就把车送到360楼下，那么忙还专门打电话问我车收到没有。我很感动也很感谢。还是那句话，我永远支持老余支持华为，为国产新能车唱赞歌。",
+  "model": "text2vec-base-multilingual",
+  "vocab": ["华为", "周鸿祎", "360", "新能源车", "智界", "工业", "其他"],
+  "top": 5,
+  "mmr": true,
+  "maxsum": true,
+  "diversity": 0.7
 }
 ```
 
@@ -168,13 +152,13 @@ POST <http://localhost:8200/keyword>
 
 ```json
 {
-    "model": "text2vec-base-multilingual",
-    "keywords": [
-        { "name": "华为", "similarity": 0.8273 },
-        { "name": "智界", "similarity": 0.7768 },
-        { "name": "周鸿祎", "similarity": 0.7615 },
-        { "name": "360", "similarity": 0.7084 }
-    ]
+  "model": "text2vec-base-multilingual",
+  "keywords": [
+    { "name": "华为", "similarity": 0.8273 },
+    { "name": "智界", "similarity": 0.7768 },
+    { "name": "周鸿祎", "similarity": 0.7615 },
+    { "name": "360", "similarity": 0.7084 }
+  ]
 }
 ```
 
@@ -225,15 +209,17 @@ GET <http://localhost:8200/models>
 
 ## 使用方式
 
-先安装好 conda，cuda，显卡驱动等基本开发环境，这里不做介绍
+先安装好 conda，cuda，显卡驱动等基本开发环境！这里不做介绍
 
 ```bash
+# 创建一个新的conda虚拟py环境
 conda create --name glm python=3.10
 
+# 进入虚拟环境
 conda activate glm
 ```
 
-安装好三方库
+安装三方库
 
 ```bash
 pip3 install -r requirements.txt
@@ -242,16 +228,46 @@ pip3 install -r requirements.txt
 设置环境变量，启动！
 
 ```bash
-# 选择显卡
+# 选择所有显卡
 export CUDA_VISIBLE_DEVICES=all
+# 或者指定显卡
+export CUDA_VISIBLE_DEVICES=1,2
+
+# 指定用于chat的模型：
+# chatglm3-6b
+# chatglm3-6b-32k
+# chatglm3-6b-128k
+# glm-4-9b
+# glm-4-9b-chat
+# glm-4-9b-chat-1m
+export GLM_MODEL=glm-4-9b-chat
+
+# 配置API端口
+export API_PORT=8900
 
 # 启动API
+python3 ./api-v2.py
+```
+
+最新的 API 启动入口更新为`api-v2.py`，但在`chatglm3-6b`上有一些 bug，暂时未修复，仍需使用 6B 模型的小伙伴建议使用老的`api.py`启动。
+
+```bash
+# 同样的，先设置下GPU
+export CUDA_VISIBLE_DEVICES=all
+export API_PORT=8000
+export GLM_MODEL=chatglm3-6b
+
 python3 ./api.py
 ```
 
-更多关于硬件要求，部署方法，讨论提问请参考官方：[https://github.com/THUDM/ChatGLM3](https://github.com/THUDM/ChatGLM3)
+更多关于硬件要求，官方部署方法，讨论提问请参考官方：
 
-## Docker
+- [ChatGLM3-6B](https://github.com/THUDM/ChatGLM3)
+- [GLM4-9B](https://github.com/THUDM/GLM-4)
+
+---
+
+## Docker（已放弃维护）⚠️
 
 **Build your image if needed**
 
