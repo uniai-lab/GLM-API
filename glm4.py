@@ -184,18 +184,6 @@ async def generate_stream_glm4(params: dict, engine: AsyncLLMEngine, tokenizer: 
     print("Message:\n" + str(messages))
     print("# -------------------------------")
 
-    # glm4 9b
-    if 'glm-4' in params["model"]:
-        eos_token_id = [151329, 151336, 151338]
-    # glm3 6b
-    else:
-        eos_token_id = [
-            tokenizer.eos_token_id,                    # [2]
-            tokenizer.get_command("<|user|>"),         # [64795]
-            tokenizer.get_command("<|observation|>")   # [64797]
-        ]
-        print("Stop Token ID: ", eos_token_id)
-
     inputs = tokenizer.apply_chat_template(
         messages,
         add_generation_prompt=True,
@@ -203,53 +191,27 @@ async def generate_stream_glm4(params: dict, engine: AsyncLLMEngine, tokenizer: 
     )
 
     params_dict = {
-        # 要返回的输出序列的数量
         "n": 1,
-        # 从提示生成的输出序列数量
         "best_of": 1,
-        # 根据新生成的文本中是否出现新标记来进行惩罚
         "presence_penalty": 1.0,
-        # 根据新生成的文本中标记的频率进行惩罚
         "frequency_penalty": 0.0,
-        # 控制采样的随机性（较低的值模型更加确定，较高的值使模型更具随机性）
-        "temperature": temperature,
-        # 控制要考虑的顶级标记的累积概率（较低的值模型更加确定，较高的值使模型更具随机性）
-        "top_p": top_p,
-        # 控制要考虑的顶级标记的数量（-1代表考虑所有标记）
-        "top_k": -1,
-        # 根据提示和新生成的文本中是否出现新标记来进行惩罚
         "repetition_penalty": repetition_penalty,
-        # 是否采用束搜索而不是采样（模型将采用随机采样）
-        "use_beam_search": False,
-        # 根据序列长度进行惩罚
-        "length_penalty": 1,
-        # 控制束搜索的停止条件
-        "early_stopping": False,
-
-        # ----
-        # "stop": ["<|", "[END]", "[actionnaire]"],
-        # "stop": ["<|end|>"]
-        # "stop_token_ids": [50256],
-        # ------
-
-        # 生成时停止生成的标记列表，返回的输出将包含停止token，除非停止标记是特殊token
-        "stop_token_ids": eos_token_id,
-        # 是否忽略EOS标记，并在生成EOS标记后继续生成token
+        "temperature": temperature,
+        "top_p": top_p,
+        "top_k": -1,
         "ignore_eos": False,
-        # 每个输出序列要生成的最大token数
         "max_tokens": max_new_tokens,
-        # 每个输出token要返回的对数概率数量
         "logprobs": None,
-        # 每个提示token要返回的对数概率数量
         "prompt_logprobs": None,
-        # 是否跳过输出中的特殊token
         "skip_special_tokens": True,
     }
+
     sampling_params = SamplingParams(**params_dict)
-    async for output in engine.generate(inputs=inputs, sampling_params=sampling_params, request_id=f"{time.time()}"):
+    request_id = str(time.time())
+    async for output in engine.generate(inputs, sampling_params, request_id):
         response = output.outputs[0].text
         print("######### ----------------------------------------------------------")
-        print(f"Generated Response:\n", response)
+        print(f"{request_id}:\n", response)
         print("######### ----------------------------------------------------------\n\n\n")
         input_len = len(output.prompt_token_ids)
         output_len = len(output.outputs[0].token_ids)

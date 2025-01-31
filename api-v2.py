@@ -23,17 +23,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
 
-EventSourceResponse.DEFAULT_PING_INTERVAL = 1000
-
-
-# set chat model in env as GLM_MODEL=chatglm3-6b
+# set chat model in `run.sh` as `GLM_MODEL=glm-4-9b-chat`
 GLM_MODEL = os.environ.get("GLM_MODEL", "glm-4-9b-chat")
 API_PORT = os.environ.get("API_PORT", 8000)
-# 动态设置 MAX_MODEL_LENGTH
-if GLM_MODEL == "chatglm3-6b":
-    MAX_MODEL_LENGTH = 8 * 1024     # 8192
-else:
-    MAX_MODEL_LENGTH = 128 * 1024   # 131072
+MAX_MODEL_LENGTH = 128 * 1024   # 131072
+EventSourceResponse.DEFAULT_PING_INTERVAL = 1000
 
 
 @asynccontextmanager
@@ -59,6 +53,7 @@ app.add_middleware(
 async def list_models():
     global model, tokenizer
     models = [
+        # embedding models
         ModelCard(id="text2vec-base-chinese", object="embedding"),
         ModelCard(id="text2vec-large-chinese", object="embedding"),
         ModelCard(id="text2vec-base-chinese-paraphrase", object="embedding"),
@@ -67,6 +62,9 @@ async def list_models():
         ModelCard(id="paraphrase-multilingual-MiniLM-L12-v2",
                   object="embedding"),
         ModelCard(id="all-MiniLM-L12-v2", object="embedding"),
+        ModelCard(id="bge-m3", object="embedding"),
+
+        # keyword models
         ModelCard(id="text2vec-base-chinese", object="keyword"),
         ModelCard(id="text2vec-large-chinese", object="keyword"),
         ModelCard(id="text2vec-base-chinese-paraphrase", object="keyword"),
@@ -74,10 +72,11 @@ async def list_models():
         ModelCard(id="text2vec-base-multilingual", object="keyword"),
         ModelCard(id="paraphrase-multilingual-MiniLM-L12-v2", object="keyword"),
         ModelCard(id="all-MiniLM-L12-v2", object="keyword"),
+        ModelCard(id="bge-m3", object="keyword"),
     ]
 
     # Add chat model
-    if model is not None and tokenizer is not None:
+    if model is not None:
         models.append(ModelCard(id=GLM_MODEL, object="chat.completion"))
 
     return ModelList(data=models)
@@ -95,29 +94,69 @@ async def embedding(request: EmbeddingRequest):
     return EmbeddingResponse(data=data, model=request.model, object="embedding")
 
 
+@app.post("/v1/embeddings", response_model=EmbeddingResponseV1)
+async def embedding(request: EmbeddingRequestV1):
+    global encoder, tokenizer
+    if request.model not in encoder:
+        raise HTTPException(
+            status_code=400, detail="Embedding model not found")
+    if tokenizer[request.model] is None:
+        raise HTTPException(
+            status_code=400, detail="API tokenize not available")
+
+    inputs = request.input if isinstance(
+        request.input, list) else [request.input]
+    embeddings = encoder[request.model].encode(inputs)
+
+    # Calculate token counts
+    total_tokens = 0
+    prompt_tokens_list = []
+
+    for text in inputs:
+        tokens = tokenizer[request.model].tokenize(text)
+        token_count = len(tokens)
+        prompt_tokens_list.append(token_count)
+        total_tokens += token_count
+
+    data = [EmbeddingObject(embedding=emb.tolist(), index=i)
+            for i, emb in enumerate(embeddings)]
+    usage_info = EmbeddingUsageInfo(prompt_tokens=sum(
+        prompt_tokens_list), total_tokens=total_tokens)
+
+    return EmbeddingResponseV1(data=data, model=request.model, usage=usage_info)
+
+
 @app.post("/tokenize", response_model=TokenizeResponse)
 async def tokenize(request: TokenizeRequest):
     global tokenizer
+    name = request.model
 
-    if tokenizer is None:
+    if tokenizer[name] is None:
         raise HTTPException(
             status_code=404, detail="API tokenize not available")
 
-    tokens = tokenizer.tokenize(request.prompt)
-    tokenIds = tokenizer(
-        request.prompt, truncation=True, max_length=request.max_tokens
-    )["input_ids"]
-    return TokenizeResponse(
-        tokenIds=tokenIds, tokens=tokens, model=GLM_MODEL, object="tokenizer"
-    )
+    tokens = tokenizer[name].tokenize(request.prompt)
+    tokenIds = tokenizer[name].encode(
+        request.prompt, add_special_tokens=True, padding=False)
+
+    return TokenizeResponse(tokenIds=tokenIds, tokens=tokens, model=name, object="tokenizer")
 
 
 @app.post("/chat", response_model=ChatCompletionResponse)
 async def chat(request: ChatCompletionRequest):
+    return await process_chat_request(request)
+
+
+@app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
+async def openai_compatible_chat(request: ChatCompletionRequest):
+    return await process_chat_request(request)
+
+
+async def process_chat_request(request: ChatCompletionRequest):
     global model, tokenizer
 
     # 如果模型或分词器未初始化，抛出404异常
-    if model is None or tokenizer is None:
+    if model is None or tokenizer[GLM_MODEL] is None:
         raise HTTPException(
             status_code=404, detail="API chat is not available")
 
@@ -150,7 +189,7 @@ async def chat(request: ChatCompletionRequest):
     if request.stream:
         print("In stream mode")
         predict_stream_generator = predict_glm4(
-            GLM_MODEL, gen_params, model, tokenizer)
+            GLM_MODEL, gen_params, model, tokenizer[GLM_MODEL])
         output = await anext(predict_stream_generator)
         if output:
             return EventSourceResponse(predict_stream_generator, media_type="text/event-stream")
@@ -176,7 +215,7 @@ async def chat(request: ChatCompletionRequest):
     print("Not In stream mode")
     response = ""
     # 异步生成响应
-    async for response in generate_stream_glm4(gen_params, model, tokenizer):
+    async for response in generate_stream_glm4(gen_params, model, tokenizer[GLM_MODEL]):
         pass
 
     # 去除响应文本开头的换行符，并去除首位空格
@@ -285,10 +324,10 @@ if __name__ == "__main__":
     available_gpus = torch.cuda.device_count()
     print("Number of gpu: ", available_gpus)
 
-    # 模型路径
-    glm_path = get_model_path(f"THUDM/{GLM_MODEL}")
-
+    # LLM
+    model_path = get_model_path(f"THUDM/{GLM_MODEL}")
     # 嵌入模型
+    bge_m3 = get_model_path("BAAI/bge-m3")
     text2vec_base_cn_path = get_model_path("shibing624/text2vec-base-chinese")
     text2vec_large_cn_path = get_model_path(
         "GanymedeNil/text2vec-large-chinese")
@@ -306,17 +345,14 @@ if __name__ == "__main__":
     # 根据可用性选择加载模型到GPU或CPU
     # 如果有可用的GPU
     if available_cuda and available_gpus > 0:
+        # 模型路径
         list_cuda()  # 列出CUDA设备
 
-        # 新模型：glm-4-9b-chat
-        print(f"GPU mode, use model: {GLM_MODEL}")
-        print(f"Max Model Length: {MAX_MODEL_LENGTH}")
-        tokenizer = AutoTokenizer.from_pretrained(
-            glm_path, trust_remote_code=True)
+        print(f"GPU mode, use model: {model_path}")
 
         engine_args = AsyncEngineArgs(
-            model=glm_path,
-            tokenizer=glm_path,
+            model=model_path,
+            tokenizer=model_path,
             # 如果你有多张显卡，可以在这里设置成你的显卡数量
             tensor_parallel_size=available_gpus,
             dtype="bfloat16",
@@ -324,8 +360,6 @@ if __name__ == "__main__":
             # 占用显存的比例，请根据你的显卡显存大小设置合适的值，例如，如果你的显卡有80G，您只想使用24G，请按照24/80=0.3设置
             # gpu_memory_utilization=0.3,
             enforce_eager=True,
-            worker_use_ray=False,
-            engine_use_ray=False,
             disable_log_requests=True,
             max_model_len=MAX_MODEL_LENGTH,
         )
@@ -339,6 +373,7 @@ if __name__ == "__main__":
     # embedding models
     # 嵌入模型（文本数据 -> 数值向量）（便于模型处理）
     encoder = {
+        "bge-m3": SentenceModel(bge_m3, device="cpu"),
         "text2vec-large-chinese": SentenceModel(text2vec_large_cn_path, device="cpu"),
         "text2vec-base-chinese": SentenceModel(text2vec_base_cn_path, device="cpu"),
         "text2vec-base-chinese-sentence": SentenceModel(text2vec_base_cn_sentence_path, device="cpu"),
@@ -351,6 +386,7 @@ if __name__ == "__main__":
     # keywords models
     # 关键词提取模型（从文本中提取最重要和最具代表性的词或短语）（便于进行文本摘要和信息检索）
     kwModel = {
+        "bge-m3": KeyBERT(model=bge_m3),
         "text2vec-large-chinese": KeyBERT(model=text2vec_large_cn_path),
         "text2vec-base-chinese": KeyBERT(model=text2vec_base_cn_path),
         "text2vec-base-chinese-sentence": KeyBERT(model=text2vec_base_cn_sentence_path),
@@ -358,6 +394,18 @@ if __name__ == "__main__":
         "text2vec-base-multilingual": KeyBERT(model=text2vec_base_mul_path),
         "paraphrase-multilingual-MiniLM-L12-v2": KeyBERT(model=paraph_mul_path),
         "all-MiniLM-L12-v2": KeyBERT(model=all_mini_12_path),
+    }
+
+    tokenizer = {
+        GLM_MODEL: AutoTokenizer.from_pretrained(model_path, trust_remote_code=True),
+        "bge-m3": AutoTokenizer.from_pretrained(bge_m3, trust_remote_code=True),
+        "text2vec-large-chinese": AutoTokenizer.from_pretrained(text2vec_large_cn_path, trust_remote_code=True),
+        "text2vec-base-chinese": AutoTokenizer.from_pretrained(text2vec_base_cn_path, trust_remote_code=True),
+        "text2vec-base-chinese-sentence": AutoTokenizer.from_pretrained(text2vec_base_cn_sentence_path, trust_remote_code=True),
+        "text2vec-base-chinese-paraphrase": AutoTokenizer.from_pretrained(text2vec_base_cn_paraph_path, trust_remote_code=True),
+        "text2vec-base-multilingual": AutoTokenizer.from_pretrained(text2vec_base_mul_path, trust_remote_code=True),
+        "paraphrase-multilingual-MiniLM-L12-v2": AutoTokenizer.from_pretrained(paraph_mul_path, trust_remote_code=True),
+        "all-MiniLM-L12-v2": AutoTokenizer.from_pretrained(all_mini_12_path, trust_remote_code=True),
     }
 
     # 启动Uvicorn服务器

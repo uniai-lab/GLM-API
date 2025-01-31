@@ -65,7 +65,8 @@ class ChatCompletionResponseChoice(BaseModel):
 
 class ChatCompletionResponseStreamChoice(BaseModel):
     delta: DeltaMessage
-    finish_reason: Optional[Literal["stop", "length", "function_call","tool_calls"]]
+    finish_reason: Optional[Literal["stop",
+                                    "length", "function_call", "tool_calls"]]
     index: int
 
 
@@ -79,7 +80,8 @@ class ChatCompletionResponse(BaseModel):
     model: str
     id: Optional[str]
     object: Literal["chat.completion", "chat.completion.chunk"]
-    choices: List[Union[ChatCompletionResponseChoice, ChatCompletionResponseStreamChoice]]
+    choices: List[Union[ChatCompletionResponseChoice,
+                        ChatCompletionResponseStreamChoice]]
     created: Optional[int] = Field(default_factory=lambda: int(time.time()))
     usage: Optional[UsageInfo] = None
 
@@ -95,15 +97,43 @@ class EmbeddingResponse(BaseModel):
     object: str
 
 
+class EmbeddingRequestV1(BaseModel):
+    model: str  # Model ID, e.g., "BAAI/bge-m3"
+    input: Union[str, List[str]]  # Input can be a string or a list of strings
+    encoding_format: Optional[str] = "float"  # Optional, default is "float"
+    # Optional, to allow specifying dimensions if necessary
+    dimensions: Optional[int] = None
+    user: Optional[str] = None  # Optional user identifier
+
+
+class EmbeddingObject(BaseModel):
+    object: str = "embedding"  # Should be "embedding"
+    embedding: List[float]  # Embedding vector
+    index: int  # Index of the embedding in the response list
+
+
+class EmbeddingUsageInfo(BaseModel):
+    prompt_tokens: int
+    total_tokens: int
+
+
+class EmbeddingResponseV1(BaseModel):
+    object: str = "list"  # Response object type
+    data: List[EmbeddingObject]  # List of embedding objects
+    model: str  # Model ID used
+    usage: Optional[EmbeddingUsageInfo] = None  # Optional usage information
+
+
 class TokenizeRequest(BaseModel):
     prompt: str
     max_tokens: int = 4096
+    model: str
 
 
 class TokenizeResponse(BaseModel):
     tokenIds: List[int]
     tokens: List[str]
-    model: str
+    model: Optional[str] = "bge-m3"
     object: str
 
 
